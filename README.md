@@ -584,6 +584,16 @@ rm -rf ~/.config/mcp-selector
 
 Your Claude configuration files (`.claude/settings.json`) will not be affected.
 
+## Enterprise Environments
+
+**Note for Enterprise Users**: If you're in an organization using enterprise-managed MCP configurations, be aware that:
+
+- Administrators may deploy centralized MCP servers via `managed-mcp.json`
+- Your organization may restrict which MCP servers can be enabled via allowlists/denylists
+- This tool operates on user-level and project-level configurations only
+
+For enterprise configuration details, see the [official Claude Code documentation](https://docs.claude.ai/).
+
 ## Troubleshooting
 
 ### Dependencies not found
