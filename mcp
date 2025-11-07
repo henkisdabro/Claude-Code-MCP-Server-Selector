@@ -387,10 +387,11 @@ detect_file_format() {
 }
 
 # Get numeric priority for scope (for precedence resolution)
-# Args: $1 - scope label (local/project/user)
-# Returns: numeric priority (3=highest, 1=lowest)
+# Args: $1 - scope label (enterprise/local/project/user)
+# Returns: numeric priority (4=highest, 1=lowest)
 get_scope_priority() {
     case "$1" in
+        enterprise) echo 4 ;;  # NEW: Highest priority (immutable)
         local) echo 3 ;;
         project) echo 2 ;;
         user) echo 1 ;;
@@ -854,6 +855,7 @@ handle_new_project_prompt() {
 
 # Discover and parse all configuration sources
 # mcpServers definitions can exist in:
+#   - managed-mcp.json (enterprise-scope) - ENTERPRISE (always enabled, immutable) [NEW]
 #   - ~/.claude.json (user-scope root & project-scope .projects[cwd]) - DIRECT (always enabled)
 #   - ~/.mcp.json (user-scope) - MCPJSON (controllable)
 #   - ./.mcp.json (project-scope) - MCPJSON (controllable)
@@ -862,6 +864,10 @@ handle_new_project_prompt() {
 discover_and_parse_all_sources() {
     local temp_raw
     temp_raw=$(mktemp)
+
+    # Parse enterprise configurations FIRST (highest priority)
+    parse_enterprise_restrictions  # Sets global flags for validation
+    parse_enterprise_mcp_json >> "$temp_raw"
 
     # Parse ~/.claude.json (handles both user-scope root AND local-scope project entries)
     # Also extracts enable/disable arrays from .projects[cwd] (though Claude Code removes them)
@@ -1353,13 +1359,79 @@ prompt_for_migration() {
     done
 }
 
+# Show toggle error message (helper for enterprise validation)
+# Args: $1 - title, $2 - reason, $3 - action
+show_toggle_error() {
+    local title="$1"
+    local reason="$2"
+    local action="$3"
+
+    # Redirect to tty for visibility
+    exec < /dev/tty > /dev/tty
+
+    echo ""
+    echo -e "${COLOR_RED}${MARK_ERROR} ${title}${COLOR_RESET}"
+    echo ""
+    echo -e "${COLOR_YELLOW}${reason}${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}${action}${COLOR_RESET}"
+    echo ""
+    sleep 2  # Give user time to read
+}
+
 # Toggle server state in state file
 # Args: $1 - server name (may have prefix like "[ON ] server-name (scope)")
 # NEW: Direct servers now toggle normally (quick-disable)
+# NEW: Enterprise validation prevents toggling restricted servers
 toggle_server() {
     local raw_input="$1"
     local server
     server=$(extract_server_name "$raw_input")
+
+    # Get server metadata from state file for validation
+    local server_flags=""
+    local current_state=""
+    local server_scope=""
+
+    while IFS=: read -r state srv scope file stype flags; do
+        [[ -z "$flags" ]] && flags=""
+        if [[ "$srv" == "$server" ]]; then
+            server_flags="$flags"
+            current_state="$state"
+            server_scope="$scope"
+            break
+        fi
+    done < "$STATE_FILE"
+
+    # === ENTERPRISE VALIDATION (Phase 5) ===
+
+    # Check 1: Enterprise-managed servers cannot be toggled
+    if [[ "$server_flags" == *"e"* ]]; then
+        show_toggle_error \
+            "Cannot modify enterprise-managed server" \
+            "This server is managed by your IT department." \
+            "Contact your administrator to request changes."
+        return 1
+    fi
+
+    # Check 2: Cannot enable blocked servers (denylist)
+    if [[ "$server_flags" == *"b"* ]] && [[ "$current_state" == "off" ]]; then
+        show_toggle_error \
+            "Cannot enable blocked server" \
+            "This server is blocked by enterprise policy." \
+            "Contact your administrator if you need access."
+        return 1
+    fi
+
+    # Check 3: Cannot enable restricted servers (not in allowlist)
+    if [[ "$server_flags" == *"r"* ]] && [[ "$current_state" == "off" ]]; then
+        show_toggle_error \
+            "Cannot enable restricted server" \
+            "This server is not in the approved list." \
+            "Contact your administrator to request access."
+        return 1
+    fi
+
+    # === END ENTERPRISE VALIDATION ===
 
     # Get source type
     local source_type
@@ -1875,13 +1947,29 @@ generate_fzf_list() {
         [[ -z "$server" ]] && continue
         [[ -z "$flags" ]] && flags=""  # Backward compatibility
 
-        # Determine state symbol and color
+        # Determine state symbol and color (with enterprise indicators - Phase 6)
         local symbol=""
         local symbol_color=""
-        if [[ "$state" == "on" ]]; then
+
+        # Check flags first (enterprise/blocked/restricted take precedence)
+        if [[ "$flags" == *"e"* ]]; then
+            # Enterprise-managed
+            symbol="🏢 ●"
+            symbol_color="${COLOR_CYAN}"
+        elif [[ "$flags" == *"b"* ]]; then
+            # Blocked by denylist
+            symbol="🔒 ○"
+            symbol_color="${COLOR_RED}"
+        elif [[ "$flags" == *"r"* ]]; then
+            # Restricted (not in allowlist)
+            symbol="⚠️  ○"
+            symbol_color="${COLOR_YELLOW}"
+        elif [[ "$state" == "on" ]]; then
+            # Normal, enabled
             symbol="●"
             symbol_color="${COLOR_GREEN}"
         else
+            # Normal, disabled
             symbol="○"
             symbol_color="${COLOR_RED}"
         fi
@@ -1912,6 +2000,47 @@ generate_fzf_list() {
 
         echo -e "$row"
     done < "$STATE_FILE"
+}
+
+# ============================================================================
+# ENTERPRISE UI COMPONENTS
+# ============================================================================
+
+# Show enterprise policy banner in TUI header
+# Only displays if enterprise mode is active
+show_enterprise_banner() {
+    # Skip if no enterprise config
+    [[ "$ENTERPRISE_MODE" == "none" ]] && return 0
+
+    echo -e "${COLOR_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}🏢 Enterprise Policies Active${COLOR_RESET}"
+
+    # Show enterprise server count
+    if [[ $ENTERPRISE_SERVER_COUNT -gt 0 ]]; then
+        echo -e "   • ${COLOR_CYAN}${ENTERPRISE_SERVER_COUNT}${COLOR_RESET} enterprise-managed servers (cannot be modified)"
+    fi
+
+    # Show restriction type
+    case "$RESTRICTION_TYPE" in
+        allowlist)
+            echo -e "   • ${COLOR_YELLOW}Access restricted to ${#ALLOWED_SERVERS[@]} approved servers${COLOR_RESET}"
+            ;;
+        denylist)
+            echo -e "   • ${COLOR_RED}${#DENIED_SERVERS[@]} servers blocked by policy${COLOR_RESET}"
+            ;;
+        both)
+            echo -e "   • ${COLOR_YELLOW}Allowlist (${#ALLOWED_SERVERS[@]}) and denylist (${#DENIED_SERVERS[@]}) active${COLOR_RESET}"
+            ;;
+    esac
+
+    # Lockdown mode warning
+    if [[ "$ENTERPRISE_MODE" == "lockdown" ]]; then
+        echo -e "   • ${COLOR_RED}⚠️  LOCKDOWN MODE - Invalid config detected${COLOR_RESET}"
+        echo -e "   • ${COLOR_RED}Only enterprise servers available${COLOR_RESET}"
+    fi
+
+    echo -e "${COLOR_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}"
+    echo ""
 }
 
 # Helper function to output preview lines with color support
@@ -2223,6 +2352,14 @@ launch_fzf_tui() {
     export -f plugin_enabled_in_lower_scope get_project_plugin_value
     export -f get_server_definition_location extract_server_definition
     export -f migrate_server_to_project_mcpjson prompt_for_migration load_servers
+    # Enterprise functions (Phase 6)
+    export -f get_enterprise_mcp_path get_enterprise_settings_path
+    export -f parse_enterprise_mcp_json parse_enterprise_restrictions
+    export -f server_in_allowlist server_in_denylist is_server_allowed
+    export -f show_toggle_error show_enterprise_banner
+    # Enterprise globals
+    export ENTERPRISE_MODE ENTERPRISE_SERVER_COUNT RESTRICTION_TYPE
+    export ALLOWED_SERVERS DENIED_SERVERS
 
     clear
 
@@ -2263,6 +2400,9 @@ launch_fzf_tui() {
     # Compact info bar with write target
     echo -e "${COLOR_CYAN}Write →${COLOR_RESET} ./.claude/settings.local.json  ${COLOR_WHITE}│${COLOR_RESET}  ${COLOR_GREEN}Enabled: ${enabled_count}/${total_count} (${enabled_pct}%)${COLOR_RESET}"
     echo ""
+
+    # Show enterprise banner if applicable (Phase 6)
+    show_enterprise_banner
 
     # Generate dynamic table header that matches column widths
     local table_header
