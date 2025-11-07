@@ -36,8 +36,9 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 - **Interactive TUI** - Fast, intuitive interface powered by fzf
 - **Real-time Updates** - Toggle servers instantly with visual feedback
 - **Multi-Source Configuration** - Discovers and merges 7 configuration sources with scope precedence
+- **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist access control **(NEW)**
 - **Smart Migration** - Automatically migrate global servers to project-level control
-- **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes
+- **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
 - **Cross-Platform** - Works on Linux and macOS out of the box
 - **Zero Dependencies** - Just bash, fzf, and jq (easy to install)
 
@@ -206,6 +207,92 @@ This ensures:
 - Team members have consistent server availability
 - Individual developers can optimize their own context
 - No conflicts from personal preferences
+
+## Enterprise Configuration
+
+**For IT Administrators:** Deploy centralized MCP servers and enforce access policies organization-wide.
+
+### Deploying Enterprise MCP Servers
+
+Create managed MCP server configurations that cannot be disabled or modified by users:
+
+**File Locations:**
+- **macOS**: `/Library/Application Support/ClaudeCode/managed-mcp.json`
+- **Linux**: `/etc/claude-code/managed-mcp.json`
+- **Windows**: `C:\ProgramData\ClaudeCode\managed-mcp.json`
+
+**Example Configuration:**
+```json
+{
+  "mcpServers": {
+    "company-api": {
+      "command": "npx",
+      "args": ["@company/internal-mcp-server"],
+      "env": {
+        "API_KEY": "${COMPANY_API_KEY}"
+      }
+    },
+    "approved-github": {
+      "command": "uvx",
+      "args": ["mcp-server-github"]
+    }
+  }
+}
+```
+
+### Enforcing Access Restrictions
+
+Control which MCP servers users can enable via allowlists and denylists:
+
+**File Locations:** Same as above, but use `managed-settings.json`
+
+**Example Policy:**
+```json
+{
+  "allowedMcpServers": [
+    { "serverName": "github" },
+    { "serverName": "sentry" },
+    { "serverName": "company-api" }
+  ],
+  "deniedMcpServers": [
+    { "serverName": "filesystem" },
+    { "serverName": "dangerous-tool" }
+  ]
+}
+```
+
+**Policy Rules:**
+- **Denylist is absolute** - Blocks servers across ALL scopes (including enterprise)
+- **Allowlist restricts user/project** - Enterprise servers bypass allowlist
+- **Empty allowlist `[]`** - Complete lockdown (deny all non-enterprise servers)
+- **Undefined allowlist** - No restrictions (allow all servers)
+- **Invalid JSON** - Automatic lockdown mode (fail-safe security)
+
+### User Experience with Enterprise Policies
+
+When enterprise policies are active, users will see:
+
+**Visual Indicators:**
+- 🏢 = Enterprise-managed server (cannot be disabled)
+- 🔒 = Blocked by denylist (cannot be enabled)
+- ⚠️ = Not in allowlist (cannot be enabled)
+
+**Banner Example:**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏢 Enterprise Policies Active
+   • 2 enterprise-managed servers (cannot be modified)
+   • Access restricted to 5 approved servers
+   • 1 servers blocked by policy
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Lockdown Mode:**
+If enterprise configuration files have invalid JSON, the tool enters lockdown mode:
+- Only enterprise-managed servers are available
+- All user/project servers are blocked
+- Prominent warning displayed
+- Contact IT administrator to resolve
 
 ## Configuration Precedence
 
