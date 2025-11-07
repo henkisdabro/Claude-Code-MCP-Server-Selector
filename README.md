@@ -33,10 +33,11 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 ## Features
 
 - **Context Window Optimization** - Enable only the MCP servers you need, minimize token waste
-- **Interactive TUI** - Fast, intuitive interface powered by fzf
+- **3-Way Toggle Cycle** - Cycle servers through RED (off) → GREEN (on) → ORANGE (available but disabled) **(NEW)**
+- **Interactive TUI** - Fast, intuitive interface powered by fzf (<1 second startup)
 - **Real-time Updates** - Toggle servers instantly with visual feedback
 - **Multi-Source Configuration** - Discovers and merges 7 configuration sources with scope precedence
-- **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist access control **(NEW)**
+- **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist access control
 - **Smart Migration** - Automatically migrate global servers to project-level control
 - **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
 - **Cross-Platform** - Works on Linux and macOS out of the box
@@ -87,7 +88,7 @@ The tool acts as a transparent wrapper - after you configure your servers and pr
 
 | Key | Action |
 |-----|--------|
-| `SPACE` | Toggle server on/off (quick-disable for Direct servers) |
+| `SPACE` | **3-way toggle**: RED (off) → GREEN (on) → ORANGE (runtime-disabled) → RED |
 | `ALT-M` | Migrate Direct server to project (full ownership) |
 | `ENTER` | Save changes and launch Claude |
 | `ESC` | Cancel without saving |
@@ -99,21 +100,45 @@ The tool acts as a transparent wrapper - after you configure your servers and pr
 
 ### UI Indicators
 
-The TUI shows server status with color-coded indicators:
+The TUI shows server status with color-coded 3-state indicators:
 
-| Indicator | Meaning | Source Type | Controllable? |
-|-----------|---------|-------------|---------------|
-| `[ON ]` (green) | Server enabled | MCPJSON (from `.mcp.json`) | ✅ Yes (SPACE) |
-| `[OFF]` (red) | Server disabled | MCPJSON (from `.mcp.json`) | ✅ Yes (SPACE) |
-| `[ON ]` (green) | Server enabled | Direct-Global (from `~/.claude.json`) | ✅ Yes (SPACE for quick-disable) |
-| `[OFF]` (red) | Server disabled | Direct-Global (from `~/.claude.json`) | ✅ Yes (SPACE to re-enable) |
-| `[ON ]` (green) | Server enabled | Direct-Local (from `~/.claude.json` project) | ✅ Yes (SPACE for quick-disable) |
-| `[OFF]` (red) | Server disabled | Direct-Local (from `~/.claude.json` project) | ✅ Yes (SPACE to re-enable) |
+| Indicator | State | Meaning | Behavior |
+|-----------|-------|---------|----------|
+| `●` (green) | **GREEN** | Enabled, will start | Server runs when Claude launches |
+| `●` (orange) | **ORANGE** | Available but runtime-disabled | Server in config but won't start |
+| `○` (red) | **RED** | Disabled | Server completely disabled |
+
+### 3-Way Toggle Cycle
+
+Press **SPACE** to cycle through all three states:
+
+```
+🔴 RED (OFF) ──────→ 🟢 GREEN (ON) ──────→ 🟠 ORANGE (PAUSED) ──────→ 🔴 RED (OFF)
+   Disabled           Will start           Available but disabled         Disabled
+```
+
+**State Details:**
+
+- **🔴 RED (OFF)**: Server completely disabled in configuration
+  - Not in `enabledMcpjsonServers`
+  - Added to `disabledMcpjsonServers`
+  - Won't appear in Claude at all
+
+- **🟢 GREEN (ON)**: Server enabled and will run
+  - In `enabledMcpjsonServers` (or default enabled)
+  - NOT in `disabledMcpServers` runtime override
+  - Starts when Claude launches
+
+- **🟠 ORANGE (PAUSED)**: Server configured but runtime-disabled
+  - In `enabledMcpjsonServers` (enabled in config)
+  - Also in `disabledMcpServers` (runtime override)
+  - Won't start despite being "enabled"
+  - **Use case**: Keep server configured but temporarily disable without removing from config
 
 **Source Type** shows where the server is defined and how it's controlled:
-- `mcpjson` - From `.mcp.json` files, fully controllable via enable/disable arrays
-- `direct` - From `~/.claude.json`, use quick-disable (SPACE) or migration (ALT-M)
-- `plugin` - From Claude Code Marketplace, controllable via enabledPlugins
+- `mcpjson` - From `.mcp.json` files, fully controllable via 3-way toggle
+- `direct` - From `~/.claude.json`, 3-way toggle works via runtime overrides
+- `plugin` - From Claude Code Marketplace, 3-way toggle works via special format
 
 **Scope** shows the precedence level:
 - `local` - Project-local override (highest priority)

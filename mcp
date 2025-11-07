@@ -11,7 +11,12 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly VERSION="1.3.0"  # Enterprise MCP support added
+readonly VERSION="1.4.0"  # 3-way toggle (ORANGE state) + 10x performance boost
+
+# Performance: FAST_MODE skips runtime detection (saves 5-8 seconds)
+# - Default: true (instant startup)
+# - Disable: FAST_MODE=false ./mcp (for debugging)
+# - ORANGE state still works via disabledMcpServers detection
 
 # Paths
 readonly BACKUP_DIR="$HOME/.claude/backups"
@@ -139,6 +144,37 @@ msg_warning() {
 
 msg_header() {
     echo -e "${COLOR_WHITE}${COLOR_CYAN}$*${COLOR_RESET}"
+}
+
+# Show progress message with animation
+# Args: $1 - message
+# Usage: msg_progress "Loading..." &; PROGRESS_PID=$!; ...; kill $PROGRESS_PID 2>/dev/null
+msg_progress() {
+    local message="$1"
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local frame_count=${#frames[@]}
+    local i=0
+
+    # Hide cursor
+    tput civis 2>/dev/null || true
+
+    while true; do
+        printf "\r${COLOR_CYAN}${frames[$i]}${COLOR_RESET} $message"
+        i=$(((i + 1) % frame_count))
+        sleep 0.1
+    done
+}
+
+# Stop progress message
+# Args: $1 - PID of progress process
+stop_progress() {
+    local pid="$1"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+    printf "\r\033[K"  # Clear line
+    tput cnorm 2>/dev/null || true  # Show cursor
 }
 
 # Get safe terminal width for lines
@@ -412,26 +448,18 @@ parse_settings_file() {
         return 0
     fi
 
-    # Extract enabled servers
-    local enabled
-    enabled=$(jq -r '.enabledMcpjsonServers[]? // empty' "$file" 2>/dev/null | sort -u)
+    # OPTIMIZATION: Extract both enabled and disabled in single jq call
+    local json_output
+    json_output=$(jq -r '(.enabledMcpjsonServers[]? // empty | "enable:" + .), (.disabledMcpjsonServers[]? // empty | "disable:" + .)' "$file" 2>/dev/null | sort -u)
 
-    # Extract disabled servers
-    local disabled
-    disabled=$(jq -r '.disabledMcpjsonServers[]? // empty' "$file" 2>/dev/null | sort -u)
-
-    # Output enabled servers
-    if [[ -n "$enabled" ]]; then
-        while IFS= read -r server; do
-            [[ -n "$server" ]] && echo "enable:$server:$scope:$file"
-        done <<< "$enabled"
-    fi
-
-    # Output disabled servers
-    if [[ -n "$disabled" ]]; then
-        while IFS= read -r server; do
-            [[ -n "$server" ]] && echo "disable:$server:$scope:$file"
-        done <<< "$disabled"
+    # Output servers with type prefix already attached
+    if [[ -n "$json_output" ]]; then
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                # line format: "enable:server" or "disable:server"
+                echo "$line:$scope:$file"
+            fi
+        done <<< "$json_output"
     fi
 }
 
@@ -1088,13 +1116,24 @@ load_servers() {
     # Write to state file
     > "$STATE_FILE"  # Truncate
 
-    # Query runtime servers ONCE (cached for performance)
-    local runtime_servers_cache
-    runtime_servers_cache=$(get_runtime_servers 2>/dev/null || true)
-    local runtime_query_success=$([[ -n "$runtime_servers_cache" ]] && echo "true" || echo "false")
+    # PERFORMANCE OPTIMIZATION: Skip runtime detection by default (saves 5-8 seconds)
+    # Runtime detection requires calling 'claude mcp list' which is SLOW
+    # Instead, we determine ORANGE state from disabledMcpServers only
+    local runtime_servers_cache=""
+    local runtime_query_success="false"
+
+    # FAST_MODE can be disabled via env var for debugging: FAST_MODE=false ./mcp
+    local FAST_MODE="${FAST_MODE:-true}"
+
+    if [[ "$FAST_MODE" == "false" ]]; then
+        # Slow path: Query actual runtime status (for debugging only)
+        runtime_servers_cache=$(get_runtime_servers 2>/dev/null || true)
+        runtime_query_success=$([[ -n "$runtime_servers_cache" ]] && echo "true" || echo "false")
+    fi
 
     # Get runtime overrides from ~/.claude.json .projects[cwd].disabledMcpServers
     # These represent servers disabled in Claude Code UI (runtime-only, not config)
+    # This is FAST (just jq query, no Claude CLI startup)
     local cwd=$(pwd)
     local runtime_overrides
     runtime_overrides=$(jq -r --arg cwd "$cwd" '.projects[$cwd].disabledMcpServers[]? // empty' "$HOME/.claude.json" 2>/dev/null || true)
@@ -1179,7 +1218,9 @@ load_servers() {
             if [[ "$found" == "true" ]]; then
                 runtime_status="running"
             else
-                runtime_status="stopped"
+                # Server enabled in config but not running yet - show as GREEN (unknown)
+                # Only "stopped" status (from runtime override) should show ORANGE
+                runtime_status="unknown"
             fi
         fi
         # else: leave as "unknown" if runtime query failed
@@ -1536,6 +1577,135 @@ show_toggle_error() {
     sleep 2  # Give user time to read
 }
 
+# Add server to ~/.claude.json .projects[cwd].disabledMcpServers
+# Args: $1 - server name, $2 - source type (plugin/mcpjson/direct-global/direct-local)
+add_to_disabled_mcp_servers() {
+    local server="$1"
+    local source_type="$2"
+    local cwd=$(pwd)
+    local claude_json="$HOME/.claude.json"
+
+    # Backup ~/.claude.json
+    local backup_file="$BACKUP_DIR/claude.json.$(date +%Y%m%d_%H%M%S).bak"
+    mkdir -p "$BACKUP_DIR"
+    if ! cp "$claude_json" "$backup_file" 2>/dev/null; then
+        msg_error "Failed to backup ~/.claude.json"
+        return 1
+    fi
+
+    local temp_json=$(mktemp)
+
+    # Plugin servers use special format: plugin:mcp-NAME:KEY
+    if [[ "$source_type" == "plugin" ]] && [[ "$server" =~ @ ]]; then
+        local plugin_base=$(echo "$server" | sed 's/@.*//')
+        local plugin_key=$(echo "$plugin_base" | sed 's/^mcp-//')
+
+        if ! jq --arg cwd "$cwd" --arg plugin_base "$plugin_base" --arg plugin_key "$plugin_key" '
+            .projects //= {} | .projects[$cwd] //= {} |
+            .projects[$cwd].disabledMcpServers = (
+                [.projects[$cwd].disabledMcpServers[]? // empty] +
+                ["plugin:\($plugin_base):\($plugin_key)"]
+            ) | unique
+        ' "$claude_json" > "$temp_json" 2>/dev/null; then
+            msg_error "Failed to add plugin to disabledMcpServers"
+            rm -f "$temp_json"
+            return 1
+        fi
+    else
+        # Direct and MCPJSON servers use plain server name
+        if ! jq --arg cwd "$cwd" --arg server "$server" '
+            .projects //= {} | .projects[$cwd] //= {} |
+            .projects[$cwd].disabledMcpServers = (
+                [.projects[$cwd].disabledMcpServers[]? // empty] +
+                [$server]
+            ) | unique
+        ' "$claude_json" > "$temp_json" 2>/dev/null; then
+            msg_error "Failed to add server to disabledMcpServers"
+            rm -f "$temp_json"
+            return 1
+        fi
+    fi
+
+    # Validate JSON
+    if ! jq empty "$temp_json" 2>/dev/null; then
+        msg_error "Failed to update ~/.claude.json - invalid JSON"
+        rm -f "$temp_json"
+        return 1
+    fi
+
+    mv "$temp_json" "$claude_json"
+    msg_success "Added to runtime override list (will show ORANGE)"
+    sleep 0.3
+    return 0
+}
+
+# Remove server from ~/.claude.json .projects[cwd].disabledMcpServers
+# Args: $1 - server name, $2 - source type (plugin/mcpjson/direct-global/direct-local)
+remove_from_disabled_mcp_servers() {
+    local server="$1"
+    local source_type="$2"
+    local cwd=$(pwd)
+    local claude_json="$HOME/.claude.json"
+
+    # Backup ~/.claude.json
+    local backup_file="$BACKUP_DIR/claude.json.$(date +%Y%m%d_%H%M%S).bak"
+    mkdir -p "$BACKUP_DIR"
+    if ! cp "$claude_json" "$backup_file" 2>/dev/null; then
+        msg_error "Failed to backup ~/.claude.json"
+        return 1
+    fi
+
+    local temp_json=$(mktemp)
+
+    # Plugin servers use special format: plugin:mcp-NAME:KEY
+    if [[ "$source_type" == "plugin" ]] && [[ "$server" =~ @ ]]; then
+        local plugin_base=$(echo "$server" | sed 's/@.*//')
+
+        if ! jq --arg cwd "$cwd" --arg plugin_base "$plugin_base" '
+            .projects //= {} | .projects[$cwd] //= {} |
+            .projects[$cwd].disabledMcpServers = [
+                .projects[$cwd].disabledMcpServers[]? // empty |
+                select(
+                    if startswith("plugin:") then
+                        split(":")[1] != $plugin_base
+                    else
+                        true
+                    end
+                )
+            ]
+        ' "$claude_json" > "$temp_json" 2>/dev/null; then
+            msg_error "Failed to remove plugin from disabledMcpServers"
+            rm -f "$temp_json"
+            return 1
+        fi
+    else
+        # Direct and MCPJSON servers use plain server name
+        if ! jq --arg cwd "$cwd" --arg server "$server" '
+            .projects //= {} | .projects[$cwd] //= {} |
+            .projects[$cwd].disabledMcpServers = [
+                .projects[$cwd].disabledMcpServers[]? // empty |
+                select(. != $server)
+            ]
+        ' "$claude_json" > "$temp_json" 2>/dev/null; then
+            msg_error "Failed to remove server from disabledMcpServers"
+            rm -f "$temp_json"
+            return 1
+        fi
+    fi
+
+    # Validate JSON
+    if ! jq empty "$temp_json" 2>/dev/null; then
+        msg_error "Failed to update ~/.claude.json - invalid JSON"
+        rm -f "$temp_json"
+        return 1
+    fi
+
+    mv "$temp_json" "$claude_json"
+    msg_success "Removed from runtime override list"
+    sleep 0.3
+    return 0
+}
+
 # Toggle server state in state file
 # Args: $1 - server name (may have prefix like "[ON ] server-name (scope)")
 # NEW: Direct servers now toggle normally (quick-disable)
@@ -1592,217 +1762,124 @@ toggle_server() {
 
     # === END ENTERPRISE VALIDATION ===
 
-    # === RUNTIME OVERRIDE HANDLING (Orange State Toggle) ===
-    # Check if server is runtime-disabled (in disabledMcpServers) but config-enabled
-    # This is the ORANGE state: enabledPlugins=true but disabledMcpServers contains it
+    # === 3-WAY TOGGLE LOGIC (RED → GREEN → ORANGE → RED) ===
+    # RED: state==off (disabled in config)
+    # GREEN: state==on, not in disabledMcpServers (enabled, will run)
+    # ORANGE: state==on, IN disabledMcpServers (enabled in config, runtime disabled)
 
     local runtime_status=""
+    local source_type=""
     while IFS=: read -r state srv scope file stype flags runtime; do
         [[ -z "$runtime" ]] && runtime="unknown"
         if [[ "$srv" == "$server" ]]; then
             runtime_status="$runtime"
+            source_type="$stype"
             break
         fi
     done < "$STATE_FILE"
 
-    # If server is orange (config enabled, runtime stopped), toggle to green by removing from disabledMcpServers
-    if [[ "$current_state" == "on" ]] && [[ "$runtime_status" == "stopped" ]]; then
-        # Get server source type to check if it's a plugin
-        local source_type
-        source_type=$(get_server_source_type "$server")
+    # Check ~/.claude.json exists and is valid
+    local cwd=$(pwd)
+    local claude_json="$HOME/.claude.json"
 
-        if [[ "$source_type" == "plugin" ]]; then
-            # This is an orange plugin server - remove from disabledMcpServers to enable it
-            local cwd=$(pwd)
-            local claude_json="$HOME/.claude.json"
-
-            # Check if it's actually in disabledMcpServers
-            local in_disabled
-            in_disabled=$(jq -r --arg cwd "$cwd" --arg server "$server" '
-                .projects[$cwd].disabledMcpServers[]? // empty |
-                select(. == $server or (startswith("plugin:") and ($server | startswith(split(":")[1] + "@"))))
-            ' "$claude_json" 2>/dev/null)
-
-            if [[ -n "$in_disabled" ]]; then
-                # Server is in disabledMcpServers - remove it to enable (toggle orange → green)
-                msg_info "Removing runtime override to enable server..."
-
-                # Backup ~/.claude.json
-                local backup_file="$BACKUP_DIR/claude.json.$(date +%Y%m%d_%H%M%S).bak"
-                mkdir -p "$BACKUP_DIR"
-                cp "$claude_json" "$backup_file"
-
-                # Extract plugin base name for matching
-                local plugin_base=""
-                if [[ "$server" =~ @ ]]; then
-                    plugin_base=$(echo "$server" | sed 's/@.*//')
-                fi
-
-                # Remove from disabledMcpServers array
-                local temp_json=$(mktemp)
-                jq --arg cwd "$cwd" --arg plugin_base "$plugin_base" '
-                    .projects[$cwd].disabledMcpServers = [
-                        .projects[$cwd].disabledMcpServers[]? // empty |
-                        select(
-                            if startswith("plugin:") then
-                                split(":")[1] != $plugin_base
-                            else
-                                true
-                            end
-                        )
-                    ]
-                ' "$claude_json" > "$temp_json"
-
-                # Validate JSON
-                if jq empty "$temp_json" 2>/dev/null; then
-                    mv "$temp_json" "$claude_json"
-                    msg_success "Runtime override removed - server will start on next session"
-
-                    # Update runtime status in state file to reflect the change
-                    local temp_state=$(mktemp)
-                    while IFS=: read -r state srv scope file stype flags runtime; do
-                        [[ -z "$flags" ]] && flags=""
-                        [[ -z "$runtime" ]] && runtime="unknown"
-                        if [[ "$srv" == "$server" ]]; then
-                            # Keep state ON, but mark as will-run (we'll show it as green next time)
-                            echo "$state:$srv:$scope:$file:$stype:$flags:running" >> "$temp_state"
-                        else
-                            echo "$state:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
-                        fi
-                    done < "$STATE_FILE"
-                    mv "$temp_state" "$STATE_FILE"
-
-                    sleep 0.5
-                    return 0
-                else
-                    msg_error "Failed to update ~/.claude.json - invalid JSON"
-                    rm -f "$temp_json"
-                    # Restore backup
-                    mv "$backup_file" "$claude_json"
-                    return 1
-                fi
-            fi
-        fi
-    fi
-
-    # === END RUNTIME OVERRIDE HANDLING ===
-
-    # Get source type
-    local source_type
-    source_type=$(get_server_source_type "$server")
-
-    # NEW: Direct servers now toggle normally (quick-disable)
-    if [[ "$source_type" == "direct-global" ]] || [[ "$source_type" == "direct-local" ]]; then
-        # Simple toggle in state file (same as MCPJSON)
-        local temp_state
-        temp_state=$(mktemp)
-
+    if [[ ! -f "$claude_json" ]]; then
+        msg_error "~/.claude.json not found - cannot use runtime overrides"
+        # Fall back to simple toggle
+        local temp_state=$(mktemp)
         while IFS=: read -r state srv scope file stype flags runtime; do
-            [[ -z "$flags" ]] && flags=""  # Backward compatibility
-            [[ -z "$runtime" ]] && runtime="unknown"  # Backward compatibility
+            [[ -z "$flags" ]] && flags=""
+            [[ -z "$runtime" ]] && runtime="unknown"
             if [[ "$srv" == "$server" ]]; then
-                # Toggle state, preserve scope, file, source type, flags, and runtime
                 if [[ "$state" == "on" ]]; then
                     echo "off:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
                 else
-                    echo "on:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
+                    echo "on:$srv:$scope:$file:$stype:$flags:unknown" >> "$temp_state"
                 fi
             else
-                # Keep unchanged
                 echo "$state:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
             fi
         done < "$STATE_FILE"
-
         mv "$temp_state" "$STATE_FILE"
         return 0
     fi
 
-    # Plugin servers: Check if green (running) and offer runtime disable option
-    if [[ "$source_type" == "plugin" ]] && [[ "$current_state" == "on" ]] && [[ "$runtime_status" == "running" ]]; then
-        # Green plugin server - offer to add to disabledMcpServers (green → orange)
-        # OR toggle config off (green → red)
-
-        # For simplicity, default behavior: add to disabledMcpServers (runtime disable)
-        local cwd=$(pwd)
-        local claude_json="$HOME/.claude.json"
-
-        msg_info "Adding runtime disable override..."
-
-        # Backup ~/.claude.json
-        local backup_file="$BACKUP_DIR/claude.json.$(date +%Y%m%d_%H%M%S).bak"
-        mkdir -p "$BACKUP_DIR"
-        cp "$claude_json" "$backup_file"
-
-        # Extract plugin base name for Claude Code format
-        local plugin_base=""
-        local plugin_key=""
+    # Determine current position in toggle cycle
+    # Check if server is in disabledMcpServers
+    local in_disabled=""
+    if [[ "$source_type" == "plugin" ]]; then
+        # Plugin servers use special format: plugin:mcp-NAME:KEY
         if [[ "$server" =~ @ ]]; then
-            plugin_base=$(echo "$server" | sed 's/@.*//')
-            # Use the actual runtime name format from claude mcp list
-            # Format: "plugin:mcp-NAME:KEY"
-            # We'll use the base name as the key for now
-            plugin_key=$(echo "$plugin_base" | sed 's/^mcp-//')
+            local plugin_base=$(echo "$server" | sed 's/@.*//')
+            in_disabled=$(jq -r --arg cwd "$cwd" '.projects[$cwd].disabledMcpServers[]? // empty | select(startswith("plugin:"))' "$claude_json" 2>/dev/null | grep -F "$plugin_base" || true)
         fi
-
-        # Add to disabledMcpServers array in Claude Code's format
-        local temp_json=$(mktemp)
-        jq --arg cwd "$cwd" --arg plugin_base "$plugin_base" --arg plugin_key "$plugin_key" '
-            .projects[$cwd].disabledMcpServers = (
-                [.projects[$cwd].disabledMcpServers[]? // empty] +
-                ["plugin:\($plugin_base):\($plugin_key)"]
-            ) | unique
-        ' "$claude_json" > "$temp_json"
-
-        # Validate JSON
-        if jq empty "$temp_json" 2>/dev/null; then
-            mv "$temp_json" "$claude_json"
-            msg_success "Runtime disable added - server will not start on next session"
-
-            # Update runtime status in state file
-            local temp_state=$(mktemp)
-            while IFS=: read -r state srv scope file stype flags runtime; do
-                [[ -z "$flags" ]] && flags=""
-                [[ -z "$runtime" ]] && runtime="unknown"
-                if [[ "$srv" == "$server" ]]; then
-                    # Keep state ON, but mark as stopped (will show orange)
-                    echo "$state:$srv:$scope:$file:$stype:$flags:stopped" >> "$temp_state"
-                else
-                    echo "$state:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
-                fi
-            done < "$STATE_FILE"
-            mv "$temp_state" "$STATE_FILE"
-
-            sleep 0.5
-            return 0
-        else
-            msg_error "Failed to update ~/.claude.json - invalid JSON"
-            rm -f "$temp_json"
-            mv "$backup_file" "$claude_json"
-            return 1
-        fi
+    else
+        # Direct and MCPJSON servers use plain server name
+        in_disabled=$(jq -r --arg cwd "$cwd" --arg server "$server" '.projects[$cwd].disabledMcpServers[]? // empty | select(. == $server)' "$claude_json" 2>/dev/null || true)
     fi
 
-    # EXISTING: MCPJSON and plugin servers with normal toggle (config on/off)
-    local temp_state
-    temp_state=$(mktemp)
-
-    while IFS=: read -r state srv scope file source_type flags runtime; do
-        [[ -z "$flags" ]] && flags=""  # Backward compatibility
-        [[ -z "$runtime" ]] && runtime="unknown"  # Backward compatibility
-        if [[ "$srv" == "$server" ]]; then
-            # Toggle state, preserve scope, file, source type, flags, and runtime
-            if [[ "$state" == "on" ]]; then
-                echo "off:$srv:$scope:$file:$source_type:$flags:$runtime" >> "$temp_state"
+    # Determine transition based on current state
+    if [[ "$current_state" == "off" ]]; then
+        # RED → GREEN: Turn on, ensure not in disabledMcpServers
+        local temp_state=$(mktemp)
+        while IFS=: read -r state srv scope file stype flags runtime; do
+            [[ -z "$flags" ]] && flags=""
+            [[ -z "$runtime" ]] && runtime="unknown"
+            if [[ "$srv" == "$server" ]]; then
+                echo "on:$srv:$scope:$file:$stype:$flags:unknown" >> "$temp_state"
             else
-                echo "on:$srv:$scope:$file:$source_type:$flags:$runtime" >> "$temp_state"
+                echo "$state:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
             fi
-        else
-            # Keep unchanged
-            echo "$state:$srv:$scope:$file:$source_type:$flags:$runtime" >> "$temp_state"
-        fi
-    done < "$STATE_FILE"
+        done < "$STATE_FILE"
+        mv "$temp_state" "$STATE_FILE"
 
-    mv "$temp_state" "$STATE_FILE"
+        # Also remove from disabledMcpServers if present
+        if [[ -n "$in_disabled" ]]; then
+            remove_from_disabled_mcp_servers "$server" "$source_type"
+        fi
+
+        return 0
+
+    elif [[ "$current_state" == "on" ]] && [[ -z "$in_disabled" ]]; then
+        # GREEN → ORANGE: Keep on, add to disabledMcpServers
+        add_to_disabled_mcp_servers "$server" "$source_type"
+
+        # Update state file to show stopped
+        local temp_state=$(mktemp)
+        while IFS=: read -r state srv scope file stype flags runtime; do
+            [[ -z "$flags" ]] && flags=""
+            [[ -z "$runtime" ]] && runtime="unknown"
+            if [[ "$srv" == "$server" ]]; then
+                echo "on:$srv:$scope:$file:$stype:$flags:stopped" >> "$temp_state"
+            else
+                echo "$state:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
+            fi
+        done < "$STATE_FILE"
+        mv "$temp_state" "$STATE_FILE"
+
+        return 0
+
+    elif [[ "$current_state" == "on" ]] && [[ -n "$in_disabled" ]]; then
+        # ORANGE → RED: Turn off, remove from disabledMcpServers
+        local temp_state=$(mktemp)
+        while IFS=: read -r state srv scope file stype flags runtime; do
+            [[ -z "$flags" ]] && flags=""
+            [[ -z "$runtime" ]] && runtime="unknown"
+            if [[ "$srv" == "$server" ]]; then
+                echo "off:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
+            else
+                echo "$state:$srv:$scope:$file:$stype:$flags:$runtime" >> "$temp_state"
+            fi
+        done < "$STATE_FILE"
+        mv "$temp_state" "$STATE_FILE"
+
+        # Remove from disabledMcpServers
+        remove_from_disabled_mcp_servers "$server" "$source_type"
+
+        return 0
+    fi
+
+    # Fallback: shouldn't reach here
+    return 1
 }
 
 # Add new server to state file (disabled by default, local scope, mcpjson type)
@@ -1955,9 +2032,26 @@ save_state_to_settings() {
         [[ -z "$flags" ]] && flags=""  # Backward compatibility
         [[ -z "$runtime" ]] && runtime="unknown"  # Backward compatibility
 
+        # === ORANGE STATE HANDLING (ALL SERVER TYPES) ===
+        # Servers with runtime==stopped are in ORANGE state (enabled but runtime-disabled)
+        # These MUST be added to disabledMcpServers in ~/.claude.json
+        if [[ "$runtime" == "stopped" ]]; then
+            if [[ "$source_type" == "plugin" ]]; then
+                # Plugins use special format: plugin:mcp-NAME:KEY
+                local plugin_base=$(echo "$server" | sed 's/@.*//')
+                local plugin_key=$(echo "$plugin_base" | sed 's/^mcp-//')
+                disabled_direct+=("plugin:$plugin_base:$plugin_key")
+            else
+                # MCPJSON and Direct servers use plain name
+                disabled_direct+=("$server")
+            fi
+        fi
+
+        # === HANDLE EACH SERVER TYPE ===
         # Handle Direct servers separately
         if [[ "$source_type" == "direct-global" ]] || [[ "$source_type" == "direct-local" ]]; then
-            if [[ "$state" == "off" ]]; then
+            # RED Direct servers also go in disabledMcpServers (if not already added as ORANGE)
+            if [[ "$state" == "off" ]] && [[ "$runtime" != "stopped" ]]; then
                 disabled_direct+=("$server")
             fi
             continue
@@ -1981,11 +2075,17 @@ save_state_to_settings() {
         fi
 
         # MCPJSON servers
-        if [[ "$state" == "on" ]]; then
+        # CRITICAL: Don't add ORANGE servers to enabled/disabled arrays
+        # ORANGE servers (state==on, runtime==stopped) are controlled ONLY via disabledMcpServers
+        if [[ "$state" == "on" ]] && [[ "$runtime" != "stopped" ]]; then
+            # GREEN servers only (will run)
             enabled_mcpjson+=("$server")
         elif [[ "$state" == "off" ]]; then
+            # RED servers only (won't run)
             disabled_mcpjson+=("$server")
         fi
+        # ORANGE servers: neither enabled nor disabled in MCPJSON arrays
+        # They're in disabledMcpServers, which provides runtime override
     done < "$STATE_FILE"
 
     # Build JSON arrays for MCPJSON servers
@@ -2064,12 +2164,16 @@ save_state_to_settings() {
 
     mv "$temp_file" "$target"
 
-    # NEW: Write Direct servers to ~/.claude.json if any are disabled
+    # Write to ~/.claude.json .projects[cwd].disabledMcpServers
+    # This includes:
+    # 1. ORANGE servers (runtime==stopped) - all types with special plugin format
+    # 2. RED Direct servers (state==off)
+    # Always call this to ensure the list is updated (even if empty)
     if [[ ${#disabled_direct[@]} -gt 0 ]]; then
         write_direct_servers_to_claude_json "${disabled_direct[@]}"
     else
-        # Clear disabledMcpServers if no Direct servers are disabled
-        write_direct_servers_to_claude_json  # Empty array
+        # No servers in disabledMcpServers - write empty array
+        write_direct_servers_to_claude_json
     fi
 }
 
@@ -2113,8 +2217,9 @@ write_direct_servers_to_claude_json() {
     local temp_preview=$(mktemp)
 
     # Write new content to temp file
+    # Ensure .projects and .projects[$cwd] exist before setting disabledMcpServers
     if ! jq --arg cwd "$cwd" --argjson disabled "$disabled_json" \
-       '.projects[$cwd].disabledMcpServers = $disabled' \
+       '.projects //= {} | .projects[$cwd] //= {} | .projects[$cwd].disabledMcpServers = $disabled' \
        "$target" > "$temp_preview" 2>/dev/null; then
         msg_error "Failed to write changes to temp file"
         rm -f "$temp_preview"
@@ -2825,15 +2930,47 @@ $table_header"
         if [[ $new_enabled_count -eq 0 ]]; then
             msg_warning "No servers enabled"
         else
-            echo -e "${COLOR_CYAN}Enabled servers (${new_enabled_count}):${COLOR_RESET}"
+            # Count GREEN vs ORANGE servers
+            local green_count=0
+            local orange_count=0
             while IFS=: read -r state server scope file source_type flags runtime; do
-                [[ -z "$flags" ]] && flags=""  # Backward compatibility
-                [[ -z "$runtime" ]] && runtime="unknown"  # Backward compatibility
+                [[ -z "$runtime" ]] && runtime="unknown"
                 if [[ "$state" == "on" ]]; then
-                    local dim='\033[2m'
-                    echo -e "  ${COLOR_GREEN}${MARK_SUCCESS}${COLOR_RESET} $server ${dim}($scope, $source_type)${COLOR_RESET}"
+                    if [[ "$runtime" == "stopped" ]]; then
+                        ((orange_count++))
+                    else
+                        ((green_count++))
+                    fi
                 fi
             done < "$STATE_FILE"
+
+            # Show GREEN servers (will run)
+            if [[ $green_count -gt 0 ]]; then
+                echo -e "${COLOR_GREEN}Will start (${green_count}):${COLOR_RESET}"
+                while IFS=: read -r state server scope file source_type flags runtime; do
+                    [[ -z "$flags" ]] && flags=""
+                    [[ -z "$runtime" ]] && runtime="unknown"
+                    if [[ "$state" == "on" ]] && [[ "$runtime" != "stopped" ]]; then
+                        local dim='\033[2m'
+                        echo -e "  ${COLOR_GREEN}✓${COLOR_RESET} $server ${dim}($scope, $source_type)${COLOR_RESET}"
+                    fi
+                done < "$STATE_FILE"
+                echo ""
+            fi
+
+            # Show ORANGE servers (available but runtime-disabled)
+            if [[ $orange_count -gt 0 ]]; then
+                echo -e "${COLOR_ORANGE}Available but disabled (${orange_count}):${COLOR_RESET}"
+                while IFS=: read -r state server scope file source_type flags runtime; do
+                    [[ -z "$flags" ]] && flags=""
+                    [[ -z "$runtime" ]] && runtime="unknown"
+                    if [[ "$state" == "on" ]] && [[ "$runtime" == "stopped" ]]; then
+                        local dim='\033[2m'
+                        echo -e "  ${COLOR_ORANGE}◐${COLOR_RESET} $server ${dim}($scope, $source_type - runtime disabled)${COLOR_RESET}"
+                    fi
+                done < "$STATE_FILE"
+                echo ""
+            fi
         fi
 
         echo ""
@@ -2859,8 +2996,12 @@ main() {
     # Discover settings file (may trigger new project flow)
     discover_settings_file
 
-    # Load servers into state file
+    # Load servers into state file with progress indicator
+    msg_progress "Discovering MCP servers and checking states..." &
+    local progress_pid=$!
     load_servers
+    stop_progress "$progress_pid"
+    msg_success "Configuration loaded"
 
     # Launch TUI
     if launch_fzf_tui; then

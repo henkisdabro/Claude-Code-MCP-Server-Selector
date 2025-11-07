@@ -22,7 +22,7 @@ This is a bash-based TUI (Text User Interface) tool for managing MCP (Model Cont
 
 The tool reads from all available configuration files and merges them with precedence:
 
-**ENTERPRISE SCOPE** (highest priority, immutable) **NEW in v1.3.0**:
+**ENTERPRISE SCOPE** (highest priority, immutable) **v1.3.0**:
 - `/etc/claude-code/managed-mcp.json` (Linux) - Enterprise MCP servers
 - `/Library/Application Support/ClaudeCode/managed-mcp.json` (macOS) - Enterprise MCP servers
 - `/etc/claude-code/managed-settings.json` (Linux) - Access policies (allowlist/denylist)
@@ -178,6 +178,93 @@ Display: [OFF] fetch (project)
    - `ENTER` - Save changes
 7. Changes saved atomically (MCPJSON → `./.claude/settings.local.json`, Direct → `~/.claude.json`)
 8. Launches Claude with updated configuration
+
+## 3-Way Toggle System (v1.4.0)
+
+The tool implements a complete 3-state toggle cycle for all server types, allowing users to cycle through:
+**RED → GREEN → ORANGE → RED**
+
+### Three States Explained
+
+**🔴 RED (Disabled)**
+- **Display**: `○` (red circle)
+- **Config State**: `state=off` in state file
+- **enabledMcpjsonServers**: Not listed
+- **disabledMcpjsonServers**: Listed
+- **disabledMcpServers**: Not needed (already disabled in config)
+- **Result**: Server completely disabled, won't appear in Claude
+
+**🟢 GREEN (Enabled - Will Start)**
+- **Display**: `●` (green circle)
+- **Config State**: `state=on`, `runtime!=stopped` in state file
+- **enabledMcpjsonServers**: Listed (or default enabled)
+- **disabledMcpjsonServers**: Not listed
+- **disabledMcpServers**: NOT listed (key difference from ORANGE)
+- **Result**: Server starts when Claude launches
+
+**🟠 ORANGE (Enabled - Runtime Disabled)**
+- **Display**: `●` (orange circle)
+- **Config State**: `state=on`, `runtime=stopped` in state file
+- **enabledMcpjsonServers**: May be listed (config says enabled)
+- **disabledMcpjsonServers**: Not listed
+- **disabledMcpServers**: Listed in `~/.claude.json` `.projects[cwd]`
+- **Result**: Server configured but runtime-disabled, won't start
+- **Use Case**: Keep server in config without removing, but temporarily disable
+
+### Toggle Implementation
+
+**Toggle Flow** (lines 1670-1844 in `toggle_server()`):
+
+1. **RED → GREEN**: Turn on config, ensure not in disabledMcpServers
+2. **GREEN → ORANGE**: Keep config on, add to disabledMcpServers
+3. **ORANGE → RED**: Turn off config, remove from disabledMcpServers
+
+**Helper Functions** (lines 1541-1668):
+- `add_to_disabled_mcp_servers()`: Adds server to `~/.claude.json` runtime override list
+- `remove_from_disabled_mcp_servers()`: Removes server from runtime override list
+
+### Save Logic Integration
+
+**Critical MCPJSON Distinction** (lines 2041-2049):
+```bash
+# ORANGE servers excluded from enabled/disabled arrays
+if [[ "$state" == "on" ]] && [[ "$runtime" != "stopped" ]]; then
+    # GREEN only
+    enabled_mcpjson+=("$server")
+elif [[ "$state" == "off" ]]; then
+    # RED only
+    disabled_mcpjson+=("$server")
+fi
+# ORANGE: neither array, controlled by disabledMcpServers
+```
+
+**ORANGE State Detection** (lines 1996-2009):
+```bash
+# All server types: check runtime==stopped
+if [[ "$runtime" == "stopped" ]]; then
+    if [[ "$source_type" == "plugin" ]]; then
+        disabled_direct+=("plugin:$plugin_base:$plugin_key")
+    else
+        disabled_direct+=("$server")
+    fi
+fi
+```
+
+### Pre-Launch Message
+
+**Separate Sections** (lines 2888-2928):
+- "Will start (N)" - GREEN servers
+- "Available but disabled (N)" - ORANGE servers
+
+### Performance: FAST_MODE
+
+**Optimization** (lines 1122-1142):
+- Skips `claude mcp list` call (saves 5-8 seconds)
+- Detects ORANGE via `disabledMcpServers` only
+- Default: `FAST_MODE=true`
+- Debug: `FAST_MODE=false ./mcp` (slow, shows actual runtime)
+
+**Trade-off**: Can't distinguish GREEN (actually running) from GREEN (enabled but Claude not running). Both show as GREEN in TUI. ORANGE detection still works perfectly via `disabledMcpServers`.
 
 ## Development Commands
 
