@@ -13,6 +13,9 @@ set -euo pipefail
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly VERSION="1.2.0"
 
+# Paths
+readonly BACKUP_DIR="$HOME/.claude/backups"
+
 # Color codes
 readonly COLOR_RESET='\033[0m'
 readonly COLOR_RED='\033[0;31m'
@@ -21,7 +24,7 @@ readonly COLOR_YELLOW='\033[1;33m'
 readonly COLOR_BLUE='\033[0;34m'
 readonly COLOR_CYAN='\033[0;36m'
 readonly COLOR_WHITE='\033[1m'
-readonly COLOR_ORANGE='\033[38;2;198;97;63m'  # Claude Code brand color: rgb(198, 97, 63)
+readonly COLOR_ORANGE='\033[38;2;213;97;38m'  # Claude Code brand color: rgb(213, 97, 38)
 readonly COLOR_GREY='\033[90m'  # Light grey for headers
 
 # Markers
@@ -954,29 +957,30 @@ migrate_server_to_project_mcpjson() {
     echo ""
 
     # Create backup of ~/.claude.json in dedicated backup directory
-    local backup_dir="$HOME/.claude/backups"
-    mkdir -p "$backup_dir"
-    local backup_file="$backup_dir/claude.json.backup.$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    local backup_file="$BACKUP_DIR/claude.json.backup.$(date +%Y%m%d_%H%M%S)"
     if ! cp "$def_file" "$backup_file" 2>/dev/null; then
         msg_error "Failed to create backup of $def_file"
         return 1
     fi
     msg_info "Backup created: $backup_file"
 
-    # Cleanup old backups (keep last 5)
-    local backup_count
-    if command -v fd &> /dev/null; then
-        backup_count=$(fd -t f "claude.json.backup." "$backup_dir" 2>/dev/null | wc -l)
-        if [[ $backup_count -gt 5 ]]; then
-            fd -t f "claude.json.backup." "$backup_dir" 2>/dev/null | sort | head -n -5 | xargs rm -f
+    # Cleanup old backups in background (keep last 5) - non-blocking
+    (
+        local backup_count
+        if command -v fd &> /dev/null; then
+            backup_count=$(fd -t f "claude.json.backup." "$BACKUP_DIR" 2>/dev/null | wc -l)
+            if [[ $backup_count -gt 5 ]]; then
+                fd -t f "claude.json.backup." "$BACKUP_DIR" 2>/dev/null | sort | head -n -5 | xargs rm -f 2>/dev/null || true
+            fi
+        else
+            # Fallback to find if fd is not available
+            backup_count=$(find "$BACKUP_DIR" -type f -name "claude.json.backup.*" 2>/dev/null | wc -l)
+            if [[ $backup_count -gt 5 ]]; then
+                find "$BACKUP_DIR" -type f -name "claude.json.backup.*" 2>/dev/null | sort | head -n -5 | xargs rm -f 2>/dev/null || true
+            fi
         fi
-    else
-        # Fallback to find if fd is not available
-        backup_count=$(find "$backup_dir" -type f -name "claude.json.backup.*" 2>/dev/null | wc -l)
-        if [[ $backup_count -gt 5 ]]; then
-            find "$backup_dir" -type f -name "claude.json.backup.*" 2>/dev/null | sort | head -n -5 | xargs rm -f
-        fi
-    fi
+    ) &
 
     # Extract server definition
     local definition
@@ -1505,9 +1509,8 @@ write_direct_servers_to_claude_json() {
     fi
 
     # Create backup now that we know changes are needed and valid
-    local backup_dir="$HOME/.claude/backups"
-    mkdir -p "$backup_dir"
-    local backup="$backup_dir/claude.json.backup.$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    local backup="$BACKUP_DIR/claude.json.backup.$(date +%Y%m%d_%H%M%S)"
 
     if ! cp "$target" "$backup" 2>/dev/null; then
         msg_error "Failed to create backup of $target"
@@ -1519,15 +1522,15 @@ write_direct_servers_to_claude_json() {
     (
         local backup_count
         if command -v fd &> /dev/null; then
-            backup_count=$(fd -t f "claude.json.backup." "$backup_dir" 2>/dev/null | wc -l)
+            backup_count=$(fd -t f "claude.json.backup." "$BACKUP_DIR" 2>/dev/null | wc -l)
             if [[ $backup_count -gt 5 ]]; then
-                fd -t f "claude.json.backup." "$backup_dir" 2>/dev/null | sort | head -n -5 | xargs rm -f 2>/dev/null
+                fd -t f "claude.json.backup." "$BACKUP_DIR" 2>/dev/null | sort | head -n -5 | xargs rm -f 2>/dev/null || true
             fi
         else
             # Fallback to find if fd is not available
-            backup_count=$(find "$backup_dir" -type f -name "claude.json.backup.*" 2>/dev/null | wc -l)
+            backup_count=$(find "$BACKUP_DIR" -type f -name "claude.json.backup.*" 2>/dev/null | wc -l)
             if [[ $backup_count -gt 5 ]]; then
-                find "$backup_dir" -type f -name "claude.json.backup.*" 2>/dev/null | sort | head -n -5 | xargs rm -f 2>/dev/null
+                find "$BACKUP_DIR" -type f -name "claude.json.backup.*" 2>/dev/null | sort | head -n -5 | xargs rm -f 2>/dev/null || true
             fi
         fi
     ) &

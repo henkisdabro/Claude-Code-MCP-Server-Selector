@@ -109,13 +109,15 @@ The TUI shows server status with color-coded indicators:
 | `[ON ]` (green) | Server enabled | Direct-Local (from `~/.claude.json` project) | ✅ Yes (SPACE for quick-disable) |
 | `[OFF]` (red) | Server disabled | Direct-Local (from `~/.claude.json` project) | ✅ Yes (SPACE to re-enable) |
 
-**Scope labels** show where the server is defined:
-- `(local, mcpjson)` - Project-local, controllable via settings
-- `(project, mcpjson)` - Project-shared, controllable via settings
-- `(user, mcpjson)` - User-global, controllable via settings
-- `(user, direct-global)` - User-global, quick-disable or migrate
-- `(local, direct-local)` - Project-specific in `~/.claude.json`, quick-disable or migrate
-- `(local, always-on)` - Project-specific in global config, requires migration
+**Source Type** shows where the server is defined and how it's controlled:
+- `mcpjson` - From `.mcp.json` files, fully controllable via enable/disable arrays
+- `direct` - From `~/.claude.json`, use quick-disable (SPACE) or migration (ALT-M)
+- `plugin` - From Claude Code Marketplace, controllable via enabledPlugins
+
+**Scope** shows the precedence level:
+- `local` - Project-local override (highest priority)
+- `project` - Project-shared configuration
+- `user` - User-global settings (lowest priority)
 
 ## Recommended Workflow
 
@@ -395,7 +397,7 @@ These control **which** servers are active:
 - `~/.claude/settings.local.json` (user-local)
 - `~/.claude/settings.json` (user-global)
 
-**Critical Limitation:** These arrays **only work** for servers defined in `.mcp.json` files. Servers defined directly in `~/.claude.json` are always enabled.
+**Critical Limitation:** These arrays **only work** for servers defined in `.mcp.json` files. Servers defined directly in `~/.claude.json` must use quick-disable (SPACE) or migration (ALT-M) for control.
 
 ### Seven Configuration Sources
 
@@ -418,23 +420,27 @@ The tool discovers and merges all available configuration files:
 
 The tool categorizes servers into three types:
 
-#### MCPJSON Servers (Controllable)
+#### MCPJSON Servers (Fully Controllable)
 - **Source**: Defined in `.mcp.json` files
 - **Control**: Can be toggled via enable/disable arrays
-- **UI Indicator**: `[ON]` (green) or `[OFF]` (red)
-- **Label**: Shows scope and type, e.g., `[ON ] fetch (project, mcpjson)`
+- **UI Indicator**: `●` (green) when enabled, `○` (red) when disabled
+- **Label**: Shows scope and type, e.g., `● fetch  │  mcpjson  │  project`
 
-#### Direct-Global Servers (Always Enabled)
+#### Direct-Global Servers (Quick-Disable or Migration)
 - **Source**: Defined in `~/.claude.json` root `.mcpServers`
-- **Control**: Always enabled, cannot be disabled without migration
-- **UI Indicator**: `[⚠]` (yellow) with "always-on" label
-- **Migration**: Can be migrated to `./.mcp.json` for project control
+- **Control**: Two options available:
+  - **Quick-Disable**: Press `SPACE` to toggle on/off (writes to `.projects[cwd].disabledMcpServers`)
+  - **Migration**: Press `ALT-M` to migrate to `./.mcp.json` for full project ownership
+- **UI Indicator**: `●` (green) when enabled, `○` (red) when disabled
+- **Label**: Shows as `● server  │  direct  │  user`
 
-#### Direct-Local Servers (Always Enabled)
+#### Direct-Local Servers (Quick-Disable or Migration)
 - **Source**: Defined in `~/.claude.json` `.projects[cwd].mcpServers`
-- **Control**: Always enabled, cannot be disabled without migration
-- **UI Indicator**: `[⚠]` (yellow) with "always-on" label
-- **Migration**: Can be migrated to `./.mcp.json` for project control
+- **Control**: Two options available:
+  - **Quick-Disable**: Press `SPACE` to toggle on/off (writes to `.projects[cwd].disabledMcpServers`)
+  - **Migration**: Press `ALT-M` to migrate to `./.mcp.json` for full project ownership
+- **UI Indicator**: `●` (green) when enabled, `○` (red) when disabled
+- **Label**: Shows as `● server  │  direct  │  local`
 
 ### Dual Precedence Resolution
 
@@ -458,7 +464,7 @@ Display: [OFF] fetch (project, mcpjson)
 
 ### Migration System
 
-When you try to disable a server marked with `[⚠]` (always-on), the tool offers to migrate it:
+For Direct servers (defined in `~/.claude.json`), pressing `ALT-M` offers to migrate the server to `./.mcp.json`:
 
 **What migration does:**
 1. Creates timestamped backup of `~/.claude.json`
@@ -553,6 +559,17 @@ These files contain `enabledMcpjsonServers` and `disabledMcpjsonServers` arrays 
    - Use this tool to migrate servers from `~/.claude.json` to `./.mcp.json`
    - Gain project-level control over previously global servers
 
+## Enterprise Environments
+
+**Note for Enterprise Users**: If your organization uses enterprise-managed MCP configurations (via `managed-mcp.json` or `managed-settings.json`), this tool operates independently of those enterprise controls. Enterprise configurations may restrict which MCP servers can be enabled or disabled.
+
+For enterprise-managed environments, please:
+- Check with your IT administrator about MCP server policies
+- Use `claude mcp list` to see all servers including enterprise-managed ones
+- Refer to [official Claude Code MCP documentation](https://docs.claude.ai/) for enterprise configuration details
+
+This tool is designed primarily for individual developers and teams managing their own MCP server configurations.
+
 ## Uninstall
 
 To completely remove Claude Code MCP Server Selector:
@@ -600,15 +617,23 @@ The tool looks for Claude in:
 
 Make sure Claude Code is properly installed.
 
-### Server shows [⚠] (always-on) indicator
+### Direct servers from ~/.claude.json
 
-This means the server is defined in `~/.claude.json` and cannot be disabled via enable/disable arrays. To gain control:
+Direct servers (defined in `~/.claude.json`) have two control methods:
 
-1. Press `SPACE` on the server to trigger migration
+**Quick-Disable (Default):**
+1. Press `SPACE` on the Direct server to toggle it on/off
+2. Changes are written to `~/.claude.json` `.projects[cwd].disabledMcpServers`
+3. Server definition stays global but is disabled for this project only
+4. Fast and reversible
+
+**Migration (Alternative):**
+1. Press `ALT-M` on the Direct server
 2. Choose `[y]` to migrate (tool creates automatic backup)
-3. Server moves to `./.mcp.json` and becomes controllable
+3. Server definition moves to `./.mcp.json`
+4. Gain full project ownership and control
 
-Alternatively, choose `[n]` to keep the server enabled globally.
+Choose quick-disable for temporary needs, migration for permanent project-specific control.
 
 ### Migration failed or want to rollback
 
@@ -682,16 +707,17 @@ Run the tool:
 |------|----------|---------------|----------|
 | `./.claude/settings.local.json` | Enable/disable arrays | MCPJSON servers on/off | **Highest** (tool writes here) |
 | `./.mcp.json` | Server definitions | Project server configs | High (project scope) |
-| `~/.claude.json` | Server definitions | Global/project servers | Medium (always-on unless migrated) |
+| `~/.claude.json` | Server definitions + disabledMcpServers | Direct servers (quick-disable or migrate) | Medium (writes to .projects[cwd]) |
 | `~/.mcp.json` | Server definitions | User-global servers | Medium (controllable) |
 | `~/.claude/settings.json` | Enable/disable arrays | MCPJSON servers on/off | Low (user-global) |
 
 ### Server Type Quick Lookup
 
 ```
-[ON ] fetch (project, mcpjson)  → Defined in ./.mcp.json, can toggle on/off
-[OFF] time (user, mcpjson)      → Defined in ~/.mcp.json, can toggle on/off
-[⚠ ] github (user, always-on)   → Defined in ~/.claude.json, needs migration
+● fetch  │  mcpjson  │  project   → Defined in ./.mcp.json, toggle on/off with SPACE
+○ time   │  mcpjson  │  user      → Defined in ~/.mcp.json, toggle on/off with SPACE
+● github │  direct   │  user      → Defined in ~/.claude.json, SPACE=quick-disable, ALT-M=migrate
+○ stripe │  direct   │  local     → Disabled via quick-disable, SPACE to re-enable
 ```
 
 ### Common Commands
@@ -702,13 +728,16 @@ mcp         # Short command
 claudemcp   # Descriptive command
 
 # Check server definitions
-jq '.mcpServers | keys' ~/.claude.json      # Global direct servers (always-on)
-jq '.mcpServers | keys' ~/.mcp.json         # Global MCPJSON servers
-jq '.mcpServers | keys' ./.mcp.json         # Project MCPJSON servers
+jq '.mcpServers | keys' ~/.claude.json      # Global direct servers (use quick-disable or migrate)
+jq '.mcpServers | keys' ~/.mcp.json         # Global MCPJSON servers (fully controllable)
+jq '.mcpServers | keys' ./.mcp.json         # Project MCPJSON servers (fully controllable)
 
 # Check enabled/disabled state
 jq '.enabledMcpjsonServers' ./.claude/settings.local.json   # Local overrides
 jq '.disabledMcpjsonServers' ./.claude/settings.local.json  # Local overrides
+
+# Reset project approval choices (if Claude Code prompts for approval)
+claude mcp reset-project-choices
 
 # Find migration backups
 ls -lt ~/.claude.json.backup.*
@@ -717,18 +746,18 @@ ls -lt ~/.claude.json.backup.*
 ### Decision Tree
 
 **When adding a new server:**
-1. ✅ Define in `./.mcp.json` (project) or `~/.mcp.json` (user)
-2. ❌ Don't define in `~/.claude.json` (becomes always-on)
+1. ✅ Define in `./.mcp.json` (project) or `~/.mcp.json` (user) for full control
+2. ⚠️ Avoid defining in `~/.claude.json` (requires quick-disable or migration for control)
 
-**When you see [⚠]:**
-1. Server is always enabled (can't toggle off)
-2. Press SPACE → choose [y] to migrate
-3. Server moves to `./.mcp.json` → becomes controllable
+**When working with Direct servers:**
+1. For temporary disable: Press `SPACE` (quick-disable for this project)
+2. For permanent project control: Press `ALT-M` → choose `[y]` to migrate
+3. Migration moves server to `./.mcp.json` → full project ownership
 
 **When setting defaults:**
-1. Disable all servers globally: `~/.claude/settings.json`
+1. Disable all servers globally: Edit `~/.claude/settings.json`
 2. Enable per-project: Let this tool manage `./.claude/settings.local.json`
-3. Team defaults: `./.claude/settings.json` (committed to git)
+3. Team defaults: Edit `./.claude/settings.json` (committed to git)
 
 ## Credits
 
