@@ -11,7 +11,7 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly VERSION="1.3.0"  # Enterprise MCP support added
+readonly VERSION="1.4.0"  # 3-way toggle (ORANGE state) + 10x performance boost
 
 # Performance: FAST_MODE skips runtime detection (saves 5-8 seconds)
 # - Default: true (instant startup)

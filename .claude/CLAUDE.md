@@ -22,7 +22,7 @@ This is a bash-based TUI (Text User Interface) tool for managing MCP (Model Cont
 
 The tool reads from all available configuration files and merges them with precedence:
 
-**ENTERPRISE SCOPE** (highest priority, immutable) **NEW in v1.3.0**:
+**ENTERPRISE SCOPE** (highest priority, immutable) **v1.3.0**:
 - `/etc/claude-code/managed-mcp.json` (Linux) - Enterprise MCP servers
 - `/Library/Application Support/ClaudeCode/managed-mcp.json` (macOS) - Enterprise MCP servers
 - `/etc/claude-code/managed-settings.json` (Linux) - Access policies (allowlist/denylist)
@@ -179,7 +179,7 @@ Display: [OFF] fetch (project)
 7. Changes saved atomically (MCPJSON → `./.claude/settings.local.json`, Direct → `~/.claude.json`)
 8. Launches Claude with updated configuration
 
-## 3-Way Toggle System (NEW in v1.3.0)
+## 3-Way Toggle System (v1.4.0)
 
 The tool implements a complete 3-state toggle cycle for all server types, allowing users to cycle through:
 **RED → GREEN → ORANGE → RED**
