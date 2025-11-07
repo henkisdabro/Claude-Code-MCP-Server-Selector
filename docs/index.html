@@ -336,6 +336,67 @@
         </div>
     </section>
 
+    <!-- Enterprise Section -->
+    <section class="section section-enterprise" id="enterprise">
+        <div class="container">
+            <h2 class="section-title">🏢 Enterprise MCP Support <span style="background: #d56126; color: white; padding: 4px 12px; border-radius: 6px; font-size: 0.6em; margin-left: 8px;">NEW in v1.3.0</span></h2>
+            <p class="section-intro">
+                Deploy centralized MCP servers organization-wide with enforced access policies. IT administrators control which servers are available while users maintain flexibility within approved boundaries.
+            </p>
+
+            <div class="enterprise-benefits">
+                <h3>For IT Administrators</h3>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <h4>Centralized Deployment</h4>
+                        <p>Deploy MCP servers via <code>managed-mcp.json</code>. Servers appear automatically for all users with highest priority—users cannot disable or modify them.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>Access Control</h4>
+                        <p>Use <code>allowedMcpServers</code> to restrict which servers users can enable. Use <code>deniedMcpServers</code> to block specific servers across the organization.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>Fail-Safe Security</h4>
+                        <p>Invalid configuration JSON triggers automatic lockdown mode—blocking all non-enterprise servers until IT fixes the issue. No risk of exposing blocked servers.</p>
+                    </div>
+                </div>
+
+                <h4 style="margin-top: 2em;">Configuration Locations</h4>
+                <ul style="list-style: none; padding: 0;">
+                    <li>📁 <strong>Linux:</strong> <code>/etc/claude-code/managed-mcp.json</code> and <code>managed-settings.json</code></li>
+                    <li>📁 <strong>macOS:</strong> <code>/Library/Application Support/ClaudeCode/managed-mcp.json</code> and <code>managed-settings.json</code></li>
+                    <li>📁 <strong>Windows:</strong> <code>C:\ProgramData\ClaudeCode\managed-mcp.json</code> and <code>managed-settings.json</code></li>
+                </ul>
+
+                <h3 style="margin-top: 2em;">For Users in Enterprise Environments</h3>
+                <div class="enterprise-ux">
+                    <h4>Visual Indicators</h4>
+                    <ul>
+                        <li>🏢 <strong>Enterprise-managed</strong> — Cannot be disabled (contact IT to change)</li>
+                        <li>🔒 <strong>Blocked by policy</strong> — Cannot be enabled (contact IT for access)</li>
+                        <li>⚠️ <strong>Not in allowlist</strong> — Cannot be enabled (request approval from IT)</li>
+                    </ul>
+
+                    <h4 style="margin-top: 1.5em;">Enterprise Policy Banner</h4>
+                    <pre style="background: #1a1a1a; padding: 1em; border-radius: 6px; overflow-x: auto;"><code>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏢 Enterprise Policies Active
+   • 2 enterprise-managed servers (cannot be modified)
+   • Access restricted to 5 approved servers
+   • 1 servers blocked by policy
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</code></pre>
+                </div>
+
+                <h4 style="margin-top: 1.5em;">Policy Rules</h4>
+                <ul>
+                    <li><strong>Denylist is absolute</strong> — Blocks servers across ALL scopes (including enterprise)</li>
+                    <li><strong>Allowlist restricts user/project</strong> — Enterprise servers bypass allowlist restrictions</li>
+                    <li><strong>Empty allowlist = lockdown</strong> — Blocks all non-enterprise servers</li>
+                    <li><strong>Invalid JSON = lockdown mode</strong> — Fail-safe protects against misconfigurations</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
     <!-- Installation Section -->
     <section class="section section-install" id="install">
         <div class="container">
