@@ -2885,15 +2885,47 @@ $table_header"
         if [[ $new_enabled_count -eq 0 ]]; then
             msg_warning "No servers enabled"
         else
-            echo -e "${COLOR_CYAN}Enabled servers (${new_enabled_count}):${COLOR_RESET}"
+            # Count GREEN vs ORANGE servers
+            local green_count=0
+            local orange_count=0
             while IFS=: read -r state server scope file source_type flags runtime; do
-                [[ -z "$flags" ]] && flags=""  # Backward compatibility
-                [[ -z "$runtime" ]] && runtime="unknown"  # Backward compatibility
+                [[ -z "$runtime" ]] && runtime="unknown"
                 if [[ "$state" == "on" ]]; then
-                    local dim='\033[2m'
-                    echo -e "  ${COLOR_GREEN}${MARK_SUCCESS}${COLOR_RESET} $server ${dim}($scope, $source_type)${COLOR_RESET}"
+                    if [[ "$runtime" == "stopped" ]]; then
+                        ((orange_count++))
+                    else
+                        ((green_count++))
+                    fi
                 fi
             done < "$STATE_FILE"
+
+            # Show GREEN servers (will run)
+            if [[ $green_count -gt 0 ]]; then
+                echo -e "${COLOR_GREEN}Will start (${green_count}):${COLOR_RESET}"
+                while IFS=: read -r state server scope file source_type flags runtime; do
+                    [[ -z "$flags" ]] && flags=""
+                    [[ -z "$runtime" ]] && runtime="unknown"
+                    if [[ "$state" == "on" ]] && [[ "$runtime" != "stopped" ]]; then
+                        local dim='\033[2m'
+                        echo -e "  ${COLOR_GREEN}✓${COLOR_RESET} $server ${dim}($scope, $source_type)${COLOR_RESET}"
+                    fi
+                done < "$STATE_FILE"
+                echo ""
+            fi
+
+            # Show ORANGE servers (available but runtime-disabled)
+            if [[ $orange_count -gt 0 ]]; then
+                echo -e "${COLOR_ORANGE}Available but disabled (${orange_count}):${COLOR_RESET}"
+                while IFS=: read -r state server scope file source_type flags runtime; do
+                    [[ -z "$flags" ]] && flags=""
+                    [[ -z "$runtime" ]] && runtime="unknown"
+                    if [[ "$state" == "on" ]] && [[ "$runtime" == "stopped" ]]; then
+                        local dim='\033[2m'
+                        echo -e "  ${COLOR_ORANGE}◐${COLOR_RESET} $server ${dim}($scope, $source_type - runtime disabled)${COLOR_RESET}"
+                    fi
+                done < "$STATE_FILE"
+                echo ""
+            fi
         fi
 
         echo ""
