@@ -11,7 +11,7 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly VERSION="1.2.0"
+readonly VERSION="1.3.0"  # Enterprise MCP support added
 
 # Paths
 readonly BACKUP_DIR="$HOME/.claude/backups"
