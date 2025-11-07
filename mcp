@@ -1179,7 +1179,9 @@ load_servers() {
             if [[ "$found" == "true" ]]; then
                 runtime_status="running"
             else
-                runtime_status="stopped"
+                # Server enabled in config but not running yet - show as GREEN (unknown)
+                # Only "stopped" status (from runtime override) should show ORANGE
+                runtime_status="unknown"
             fi
         fi
         # else: leave as "unknown" if runtime query failed
@@ -1641,6 +1643,7 @@ toggle_server() {
                 # Remove from disabledMcpServers array
                 local temp_json=$(mktemp)
                 jq --arg cwd "$cwd" --arg plugin_base "$plugin_base" '
+                    .projects //= {} | .projects[$cwd] //= {} |
                     .projects[$cwd].disabledMcpServers = [
                         .projects[$cwd].disabledMcpServers[]? // empty |
                         select(
@@ -1747,6 +1750,7 @@ toggle_server() {
         # Add to disabledMcpServers array in Claude Code's format
         local temp_json=$(mktemp)
         jq --arg cwd "$cwd" --arg plugin_base "$plugin_base" --arg plugin_key "$plugin_key" '
+            .projects //= {} | .projects[$cwd] //= {} |
             .projects[$cwd].disabledMcpServers = (
                 [.projects[$cwd].disabledMcpServers[]? // empty] +
                 ["plugin:\($plugin_base):\($plugin_key)"]
@@ -2113,8 +2117,9 @@ write_direct_servers_to_claude_json() {
     local temp_preview=$(mktemp)
 
     # Write new content to temp file
+    # Ensure .projects and .projects[$cwd] exist before setting disabledMcpServers
     if ! jq --arg cwd "$cwd" --argjson disabled "$disabled_json" \
-       '.projects[$cwd].disabledMcpServers = $disabled' \
+       '.projects //= {} | .projects[$cwd] //= {} | .projects[$cwd].disabledMcpServers = $disabled' \
        "$target" > "$temp_preview" 2>/dev/null; then
         msg_error "Failed to write changes to temp file"
         rm -f "$temp_preview"
