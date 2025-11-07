@@ -141,6 +141,37 @@ msg_header() {
     echo -e "${COLOR_WHITE}${COLOR_CYAN}$*${COLOR_RESET}"
 }
 
+# Show progress message with animation
+# Args: $1 - message
+# Usage: msg_progress "Loading..." &; PROGRESS_PID=$!; ...; kill $PROGRESS_PID 2>/dev/null
+msg_progress() {
+    local message="$1"
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local frame_count=${#frames[@]}
+    local i=0
+
+    # Hide cursor
+    tput civis 2>/dev/null || true
+
+    while true; do
+        printf "\r${COLOR_CYAN}${frames[$i]}${COLOR_RESET} $message"
+        i=$(((i + 1) % frame_count))
+        sleep 0.1
+    done
+}
+
+# Stop progress message
+# Args: $1 - PID of progress process
+stop_progress() {
+    local pid="$1"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+    printf "\r\033[K"  # Clear line
+    tput cnorm 2>/dev/null || true  # Show cursor
+}
+
 # Get safe terminal width for lines
 # Returns: width (defaults to 60 for narrow terminals)
 get_term_width() {
@@ -2036,11 +2067,17 @@ save_state_to_settings() {
         fi
 
         # MCPJSON servers
-        if [[ "$state" == "on" ]]; then
+        # CRITICAL: Don't add ORANGE servers to enabled/disabled arrays
+        # ORANGE servers (state==on, runtime==stopped) are controlled ONLY via disabledMcpServers
+        if [[ "$state" == "on" ]] && [[ "$runtime" != "stopped" ]]; then
+            # GREEN servers only (will run)
             enabled_mcpjson+=("$server")
         elif [[ "$state" == "off" ]]; then
+            # RED servers only (won't run)
             disabled_mcpjson+=("$server")
         fi
+        # ORANGE servers: neither enabled nor disabled in MCPJSON arrays
+        # They're in disabledMcpServers, which provides runtime override
     done < "$STATE_FILE"
 
     # Build JSON arrays for MCPJSON servers
@@ -2951,8 +2988,12 @@ main() {
     # Discover settings file (may trigger new project flow)
     discover_settings_file
 
-    # Load servers into state file
+    # Load servers into state file with progress indicator
+    msg_progress "Discovering MCP servers and checking states..." &
+    local progress_pid=$!
     load_servers
+    stop_progress "$progress_pid"
+    msg_success "Configuration loaded"
 
     # Launch TUI
     if launch_fzf_tui; then
