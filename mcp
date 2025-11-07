@@ -11,10 +11,52 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly VERSION="1.2.0"
+readonly VERSION="1.3.0"  # Enterprise MCP support added
 
 # Paths
 readonly BACKUP_DIR="$HOME/.claude/backups"
+
+# ============================================================================
+# ENTERPRISE CONFIGURATION PATHS
+# ============================================================================
+
+# Get platform-specific path for managed-mcp.json
+# Returns: Path string or empty if not found
+# Handles: Linux, macOS, WSL (checks both Windows and Linux paths)
+get_enterprise_mcp_path() {
+    # Detect WSL first - check both Windows and Linux paths
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        local win_path="/mnt/c/ProgramData/ClaudeCode/managed-mcp.json"
+        local lin_path="/etc/claude-code/managed-mcp.json"
+        [[ -f "$win_path" ]] && echo "$win_path" && return 0
+        [[ -f "$lin_path" ]] && echo "$lin_path" && return 0
+        return 1
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "/Library/Application Support/ClaudeCode/managed-mcp.json"
+        return 0
+    else
+        echo "/etc/claude-code/managed-mcp.json"
+        return 0
+    fi
+}
+
+# Get platform-specific path for managed-settings.json
+# Returns: Path string or empty if not found
+get_enterprise_settings_path() {
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        local win_path="/mnt/c/ProgramData/ClaudeCode/managed-settings.json"
+        local lin_path="/etc/claude-code/managed-settings.json"
+        [[ -f "$win_path" ]] && echo "$win_path" && return 0
+        [[ -f "$lin_path" ]] && echo "$lin_path" && return 0
+        return 1
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "/Library/Application Support/ClaudeCode/managed-settings.json"
+        return 0
+    else
+        echo "/etc/claude-code/managed-settings.json"
+        return 0
+    fi
+}
 
 # Color codes
 readonly COLOR_RESET='\033[0m'
@@ -39,6 +81,15 @@ STATE_FILE=""
 # Settings file path (determined during discovery)
 SETTINGS_FILE_PATH=""
 SETTINGS_SCOPE=""
+
+# Enterprise mode flags
+ENTERPRISE_MODE="none"        # none|active|lockdown
+ENTERPRISE_SERVER_COUNT=0
+RESTRICTION_TYPE="none"       # none|allowlist|denylist|both
+
+# Restriction data
+declare -a ALLOWED_SERVERS
+declare -a DENIED_SERVERS
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -336,10 +387,11 @@ detect_file_format() {
 }
 
 # Get numeric priority for scope (for precedence resolution)
-# Args: $1 - scope label (local/project/user)
-# Returns: numeric priority (3=highest, 1=lowest)
+# Args: $1 - scope label (enterprise/local/project/user)
+# Returns: numeric priority (4=highest, 1=lowest)
 get_scope_priority() {
     case "$1" in
+        enterprise) echo 4 ;;  # NEW: Highest priority (immutable)
         local) echo 3 ;;
         project) echo 2 ;;
         user) echo 1 ;;
@@ -556,6 +608,153 @@ parse_plugin_marketplace_files() {
 }
 
 # ============================================================================
+# ENTERPRISE CONFIGURATION PARSING
+# ============================================================================
+
+# Parse enterprise MCP servers from managed-mcp.json
+# Output: Lines in format "def:server:enterprise:file:mcpjson:e"
+# Flag 'e' = enterprise-managed (immutable)
+parse_enterprise_mcp_json() {
+    local file
+    file=$(get_enterprise_mcp_path)
+
+    # No file = no enterprise servers
+    [[ -z "$file" ]] || [[ ! -f "$file" ]] && return 0
+
+    # Validate JSON
+    if ! jq empty "$file" 2>/dev/null; then
+        msg_warning "Enterprise MCP file has invalid JSON: $file"
+        return 1
+    fi
+
+    # Parse mcpServers object keys
+    local servers
+    servers=$(jq -r '.mcpServers | keys[]? // empty' "$file" 2>/dev/null)
+
+    [[ -z "$servers" ]] && return 0
+
+    # Output with enterprise scope and flag
+    while IFS= read -r server; do
+        [[ -n "$server" ]] && echo "def:${server}:enterprise:${file}:mcpjson:e"
+        ((ENTERPRISE_SERVER_COUNT++))
+    done <<< "$servers"
+}
+
+# Parse enterprise restrictions from managed-settings.json
+# Sets global variables: ALLOWED_SERVERS, DENIED_SERVERS, ENTERPRISE_MODE, RESTRICTION_TYPE
+# Returns: 0 on success, 1 on error (triggers lockdown mode)
+parse_enterprise_restrictions() {
+    local file
+    file=$(get_enterprise_settings_path)
+
+    # No file = no restrictions
+    if [[ -z "$file" ]] || [[ ! -f "$file" ]]; then
+        ENTERPRISE_MODE="none"
+        return 0
+    fi
+
+    # Validate JSON - CRITICAL for security
+    if ! jq empty "$file" 2>/dev/null; then
+        # FAIL-SAFE: Invalid JSON = lockdown mode
+        msg_error "Enterprise settings file has invalid JSON: $file"
+        msg_error "Enforcing lockdown mode for security"
+        ENTERPRISE_MODE="lockdown"
+        return 1
+    fi
+
+    # Parse allowedMcpServers
+    local allowed_raw
+    allowed_raw=$(jq -r '.allowedMcpServers[]?.serverName // empty' "$file" 2>/dev/null)
+    if [[ -n "$allowed_raw" ]]; then
+        mapfile -t ALLOWED_SERVERS <<< "$allowed_raw"
+    fi
+
+    # Parse deniedMcpServers
+    local denied_raw
+    denied_raw=$(jq -r '.deniedMcpServers[]?.serverName // empty' "$file" 2>/dev/null)
+    if [[ -n "$denied_raw" ]]; then
+        mapfile -t DENIED_SERVERS <<< "$denied_raw"
+    fi
+
+    # Determine restriction type
+    if [[ ${#ALLOWED_SERVERS[@]} -gt 0 ]] && [[ ${#DENIED_SERVERS[@]} -gt 0 ]]; then
+        RESTRICTION_TYPE="both"
+    elif [[ ${#ALLOWED_SERVERS[@]} -gt 0 ]]; then
+        RESTRICTION_TYPE="allowlist"
+    elif [[ ${#DENIED_SERVERS[@]} -gt 0 ]]; then
+        RESTRICTION_TYPE="denylist"
+    else
+        RESTRICTION_TYPE="none"
+    fi
+
+    ENTERPRISE_MODE="active"
+    return 0
+}
+
+# Check if server is in allowlist
+# Args: $1 - server name
+# Returns: 0 if in allowlist (or no allowlist), 1 if not
+server_in_allowlist() {
+    local server="$1"
+
+    # No allowlist = all allowed
+    [[ ${#ALLOWED_SERVERS[@]} -eq 0 ]] && return 0
+
+    # Check membership
+    for allowed in "${ALLOWED_SERVERS[@]}"; do
+        [[ "$allowed" == "$server" ]] && return 0
+    done
+
+    return 1
+}
+
+# Check if server is in denylist
+# Args: $1 - server name
+# Returns: 0 if in denylist, 1 if not
+server_in_denylist() {
+    local server="$1"
+
+    # No denylist = none denied
+    [[ ${#DENIED_SERVERS[@]} -eq 0 ]] && return 1
+
+    # Check membership
+    for denied in "${DENIED_SERVERS[@]}"; do
+        [[ "$denied" == "$server" ]] && return 0
+    done
+
+    return 1
+}
+
+# Main validation function - implements truth table from ENTERPRISE_FEATURE_PLAN.md
+# Args: $1 - server name, $2 - scope (enterprise/local/project/user)
+# Returns: 0 if allowed, 1 if blocked
+is_server_allowed() {
+    local server="$1"
+    local scope="${2:-user}"
+
+    # Lockdown mode - only allow enterprise servers
+    if [[ "$ENTERPRISE_MODE" == "lockdown" ]]; then
+        [[ "$scope" == "enterprise" ]] && return 0 || return 1
+    fi
+
+    # Rule 1: Denylist is absolute (blocks ALL scopes including enterprise)
+    server_in_denylist "$server" && return 1
+
+    # Rule 2: Enterprise servers bypass allowlist
+    [[ "$scope" == "enterprise" ]] && return 0
+
+    # Rule 3: Check allowlist (only for non-enterprise)
+    # If allowlist exists (even if empty), it acts as whitelist
+    if [[ ${#ALLOWED_SERVERS[@]} -gt 0 ]] || \
+       jq -e '.allowedMcpServers' "$(get_enterprise_settings_path)" &>/dev/null; then
+        server_in_allowlist "$server" && return 0 || return 1
+    fi
+
+    # Rule 4: No restrictions
+    return 0
+}
+
+# ============================================================================
 # CONFIGURATION DISCOVERY & NEW PROJECT FLOW
 # ============================================================================
 
@@ -656,6 +855,7 @@ handle_new_project_prompt() {
 
 # Discover and parse all configuration sources
 # mcpServers definitions can exist in:
+#   - managed-mcp.json (enterprise-scope) - ENTERPRISE (always enabled, immutable) [NEW]
 #   - ~/.claude.json (user-scope root & project-scope .projects[cwd]) - DIRECT (always enabled)
 #   - ~/.mcp.json (user-scope) - MCPJSON (controllable)
 #   - ./.mcp.json (project-scope) - MCPJSON (controllable)
@@ -664,6 +864,10 @@ handle_new_project_prompt() {
 discover_and_parse_all_sources() {
     local temp_raw
     temp_raw=$(mktemp)
+
+    # Parse enterprise configurations FIRST (highest priority)
+    parse_enterprise_restrictions  # Sets global flags for validation
+    parse_enterprise_mcp_json >> "$temp_raw"
 
     # Parse ~/.claude.json (handles both user-scope root AND local-scope project entries)
     # Also extracts enable/disable arrays from .projects[cwd] (though Claude Code removes them)
@@ -807,7 +1011,24 @@ load_servers() {
             state=$(echo "$state_value" | cut -d: -f2)
         fi
 
-        echo "$state:$server:$def_scope:$def_file:$source_type" >> "$STATE_FILE"
+        # Determine flags based on scope and validation (NEW: Phase 3)
+        local flags=""
+
+        # Enterprise servers get 'e' flag (immutable)
+        if [[ "$def_scope" == "enterprise" ]]; then
+            flags="e"
+        fi
+
+        # Check if server is blocked/restricted (for non-enterprise)
+        if [[ "$def_scope" != "enterprise" ]]; then
+            if server_in_denylist "$server"; then
+                flags="${flags}b"
+            elif ! is_server_allowed "$server" "$def_scope"; then
+                flags="${flags}r"
+            fi
+        fi
+
+        echo "$state:$server:$def_scope:$def_file:$source_type:$flags" >> "$STATE_FILE"
     done
 
     # Sort state file by server name
@@ -882,7 +1103,8 @@ mark_server_migrated() {
 get_server_source_type() {
     local server="$1"
 
-    while IFS=: read -r state srv scope file source_type; do
+    while IFS=: read -r state srv scope file source_type flags; do
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
         if [[ "$srv" == "$server" ]]; then
             echo "$source_type"
             return 0
@@ -898,7 +1120,8 @@ get_server_source_type() {
 get_server_definition_location() {
     local server="$1"
 
-    while IFS=: read -r state srv scope file source_type; do
+    while IFS=: read -r state srv scope file source_type flags; do
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
         if [[ "$srv" == "$server" ]]; then
             echo "$scope:$file"
             return 0
@@ -1136,13 +1359,79 @@ prompt_for_migration() {
     done
 }
 
+# Show toggle error message (helper for enterprise validation)
+# Args: $1 - title, $2 - reason, $3 - action
+show_toggle_error() {
+    local title="$1"
+    local reason="$2"
+    local action="$3"
+
+    # Redirect to tty for visibility
+    exec < /dev/tty > /dev/tty
+
+    echo ""
+    echo -e "${COLOR_RED}${MARK_ERROR} ${title}${COLOR_RESET}"
+    echo ""
+    echo -e "${COLOR_YELLOW}${reason}${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}${action}${COLOR_RESET}"
+    echo ""
+    sleep 2  # Give user time to read
+}
+
 # Toggle server state in state file
 # Args: $1 - server name (may have prefix like "[ON ] server-name (scope)")
 # NEW: Direct servers now toggle normally (quick-disable)
+# NEW: Enterprise validation prevents toggling restricted servers
 toggle_server() {
     local raw_input="$1"
     local server
     server=$(extract_server_name "$raw_input")
+
+    # Get server metadata from state file for validation
+    local server_flags=""
+    local current_state=""
+    local server_scope=""
+
+    while IFS=: read -r state srv scope file stype flags; do
+        [[ -z "$flags" ]] && flags=""
+        if [[ "$srv" == "$server" ]]; then
+            server_flags="$flags"
+            current_state="$state"
+            server_scope="$scope"
+            break
+        fi
+    done < "$STATE_FILE"
+
+    # === ENTERPRISE VALIDATION (Phase 5) ===
+
+    # Check 1: Enterprise-managed servers cannot be toggled
+    if [[ "$server_flags" == *"e"* ]]; then
+        show_toggle_error \
+            "Cannot modify enterprise-managed server" \
+            "This server is managed by your IT department." \
+            "Contact your administrator to request changes."
+        return 1
+    fi
+
+    # Check 2: Cannot enable blocked servers (denylist)
+    if [[ "$server_flags" == *"b"* ]] && [[ "$current_state" == "off" ]]; then
+        show_toggle_error \
+            "Cannot enable blocked server" \
+            "This server is blocked by enterprise policy." \
+            "Contact your administrator if you need access."
+        return 1
+    fi
+
+    # Check 3: Cannot enable restricted servers (not in allowlist)
+    if [[ "$server_flags" == *"r"* ]] && [[ "$current_state" == "off" ]]; then
+        show_toggle_error \
+            "Cannot enable restricted server" \
+            "This server is not in the approved list." \
+            "Contact your administrator to request access."
+        return 1
+    fi
+
+    # === END ENTERPRISE VALIDATION ===
 
     # Get source type
     local source_type
@@ -1154,17 +1443,18 @@ toggle_server() {
         local temp_state
         temp_state=$(mktemp)
 
-        while IFS=: read -r state srv scope file stype; do
+        while IFS=: read -r state srv scope file stype flags; do
+            [[ -z "$flags" ]] && flags=""  # Backward compatibility
             if [[ "$srv" == "$server" ]]; then
-                # Toggle state, preserve scope, file, and source type
+                # Toggle state, preserve scope, file, source type, and flags
                 if [[ "$state" == "on" ]]; then
-                    echo "off:$srv:$scope:$file:$stype" >> "$temp_state"
+                    echo "off:$srv:$scope:$file:$stype:$flags" >> "$temp_state"
                 else
-                    echo "on:$srv:$scope:$file:$stype" >> "$temp_state"
+                    echo "on:$srv:$scope:$file:$stype:$flags" >> "$temp_state"
                 fi
             else
                 # Keep unchanged
-                echo "$state:$srv:$scope:$file:$stype" >> "$temp_state"
+                echo "$state:$srv:$scope:$file:$stype:$flags" >> "$temp_state"
             fi
         done < "$STATE_FILE"
 
@@ -1172,21 +1462,22 @@ toggle_server() {
         return 0
     fi
 
-    # EXISTING: MCPJSON servers (no changes)
+    # EXISTING: MCPJSON servers (updated for flags support)
     local temp_state
     temp_state=$(mktemp)
 
-    while IFS=: read -r state srv scope file source_type; do
+    while IFS=: read -r state srv scope file source_type flags; do
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
         if [[ "$srv" == "$server" ]]; then
-            # Toggle state, preserve scope, file, and source type
+            # Toggle state, preserve scope, file, source type, and flags
             if [[ "$state" == "on" ]]; then
-                echo "off:$srv:$scope:$file:$source_type" >> "$temp_state"
+                echo "off:$srv:$scope:$file:$source_type:$flags" >> "$temp_state"
             else
-                echo "on:$srv:$scope:$file:$source_type" >> "$temp_state"
+                echo "on:$srv:$scope:$file:$source_type:$flags" >> "$temp_state"
             fi
         else
             # Keep unchanged
-            echo "$state:$srv:$scope:$file:$source_type" >> "$temp_state"
+            echo "$state:$srv:$scope:$file:$source_type:$flags" >> "$temp_state"
         fi
     done < "$STATE_FILE"
 
@@ -1211,9 +1502,9 @@ add_server() {
         return 1
     fi
 
-    # Add to state file (disabled, project scope, .mcp.json, mcpjson type)
+    # Add to state file (disabled, project scope, .mcp.json, mcpjson type, no flags)
     # Note: This assumes user will define the server in ./.mcp.json
-    echo "off:$server:project:./.mcp.json:mcpjson" >> "$STATE_FILE"
+    echo "off:$server:project:./.mcp.json:mcpjson:" >> "$STATE_FILE"
     sort -t: -k2 "$STATE_FILE" -o "$STATE_FILE"
 }
 
@@ -1228,34 +1519,37 @@ remove_server() {
     local temp_state
     temp_state=$(mktemp)
 
-    while IFS=: read -r state srv scope file source_type; do
+    while IFS=: read -r state srv scope file source_type flags; do
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
         if [[ "$srv" != "$server" ]]; then
-            echo "$state:$srv:$scope:$file:$source_type" >> "$temp_state"
+            echo "$state:$srv:$scope:$file:$source_type:$flags" >> "$temp_state"
         fi
     done < "$STATE_FILE"
 
     mv "$temp_state" "$STATE_FILE"
 }
 
-# Enable all servers in state file (preserve scope, file, and source type metadata)
+# Enable all servers in state file (preserve scope, file, source type, and flags metadata)
 enable_all_servers() {
     local temp_state
     temp_state=$(mktemp)
 
-    while IFS=: read -r state srv scope file source_type; do
-        echo "on:$srv:$scope:$file:$source_type" >> "$temp_state"
+    while IFS=: read -r state srv scope file source_type flags; do
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
+        echo "on:$srv:$scope:$file:$source_type:$flags" >> "$temp_state"
     done < "$STATE_FILE"
 
     mv "$temp_state" "$STATE_FILE"
 }
 
-# Disable all servers in state file (preserve scope, file, and source type metadata)
+# Disable all servers in state file (preserve scope, file, source type, and flags metadata)
 disable_all_servers() {
     local temp_state
     temp_state=$(mktemp)
 
-    while IFS=: read -r state srv scope file source_type; do
-        echo "off:$srv:$scope:$file:$source_type" >> "$temp_state"
+    while IFS=: read -r state srv scope file source_type flags; do
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
+        echo "off:$srv:$scope:$file:$source_type:$flags" >> "$temp_state"
     done < "$STATE_FILE"
 
     mv "$temp_state" "$STATE_FILE"
@@ -1332,8 +1626,9 @@ save_state_to_settings() {
     local disabled_direct=()  # Track Direct servers separately
     declare -A enabled_plugins  # Track plugin servers (name -> state)
 
-    while IFS=: read -r state server scope file source_type; do
+    while IFS=: read -r state server scope file source_type flags; do
         [[ -z "$server" ]] && continue
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
 
         # Handle Direct servers separately
         if [[ "$source_type" == "direct-global" ]] || [[ "$source_type" == "direct-local" ]]; then
@@ -1558,8 +1853,9 @@ generate_table_header() {
     local max_server_len=0
     local max_type_len=0
 
-    while IFS=: read -r state server scope file source_type; do
+    while IFS=: read -r state server scope file source_type flags; do
         [[ -z "$server" ]] && continue
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
 
         local server_len=${#server}
         local type_len=0
@@ -1623,8 +1919,9 @@ generate_fzf_list() {
     local max_server_len=0
     local max_type_len=0
 
-    while IFS=: read -r state server scope file source_type; do
+    while IFS=: read -r state server scope file source_type flags; do
         [[ -z "$server" ]] && continue
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
 
         local server_len=${#server}
         local type_len=0
@@ -1646,16 +1943,33 @@ generate_fzf_list() {
     max_type_len=$((max_type_len + 2))
 
     # Second pass: format with calculated widths
-    while IFS=: read -r state server scope file source_type; do
+    while IFS=: read -r state server scope file source_type flags; do
         [[ -z "$server" ]] && continue
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
 
-        # Determine state symbol and color
+        # Determine state symbol and color (with enterprise indicators - Phase 6)
         local symbol=""
         local symbol_color=""
-        if [[ "$state" == "on" ]]; then
+
+        # Check flags first (enterprise/blocked/restricted take precedence)
+        if [[ "$flags" == *"e"* ]]; then
+            # Enterprise-managed
+            symbol="🏢 ●"
+            symbol_color="${COLOR_CYAN}"
+        elif [[ "$flags" == *"b"* ]]; then
+            # Blocked by denylist
+            symbol="🔒 ○"
+            symbol_color="${COLOR_RED}"
+        elif [[ "$flags" == *"r"* ]]; then
+            # Restricted (not in allowlist)
+            symbol="⚠️  ○"
+            symbol_color="${COLOR_YELLOW}"
+        elif [[ "$state" == "on" ]]; then
+            # Normal, enabled
             symbol="●"
             symbol_color="${COLOR_GREEN}"
         else
+            # Normal, disabled
             symbol="○"
             symbol_color="${COLOR_RED}"
         fi
@@ -1688,6 +2002,47 @@ generate_fzf_list() {
     done < "$STATE_FILE"
 }
 
+# ============================================================================
+# ENTERPRISE UI COMPONENTS
+# ============================================================================
+
+# Show enterprise policy banner in TUI header
+# Only displays if enterprise mode is active
+show_enterprise_banner() {
+    # Skip if no enterprise config
+    [[ "$ENTERPRISE_MODE" == "none" ]] && return 0
+
+    echo -e "${COLOR_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}🏢 Enterprise Policies Active${COLOR_RESET}"
+
+    # Show enterprise server count
+    if [[ $ENTERPRISE_SERVER_COUNT -gt 0 ]]; then
+        echo -e "   • ${COLOR_CYAN}${ENTERPRISE_SERVER_COUNT}${COLOR_RESET} enterprise-managed servers (cannot be modified)"
+    fi
+
+    # Show restriction type
+    case "$RESTRICTION_TYPE" in
+        allowlist)
+            echo -e "   • ${COLOR_YELLOW}Access restricted to ${#ALLOWED_SERVERS[@]} approved servers${COLOR_RESET}"
+            ;;
+        denylist)
+            echo -e "   • ${COLOR_RED}${#DENIED_SERVERS[@]} servers blocked by policy${COLOR_RESET}"
+            ;;
+        both)
+            echo -e "   • ${COLOR_YELLOW}Allowlist (${#ALLOWED_SERVERS[@]}) and denylist (${#DENIED_SERVERS[@]}) active${COLOR_RESET}"
+            ;;
+    esac
+
+    # Lockdown mode warning
+    if [[ "$ENTERPRISE_MODE" == "lockdown" ]]; then
+        echo -e "   • ${COLOR_RED}⚠️  LOCKDOWN MODE - Invalid config detected${COLOR_RESET}"
+        echo -e "   • ${COLOR_RED}Only enterprise servers available${COLOR_RESET}"
+    fi
+
+    echo -e "${COLOR_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}"
+    echo ""
+}
+
 # Helper function to output preview lines with color support
 # Args: $1 - text line
 # Returns: formatted line with proper color rendering
@@ -1713,13 +2068,16 @@ generate_preview() {
     local def_scope=""
     local def_file=""
     local source_type=""
+    local server_flags=""
 
-    while IFS=: read -r state srv scope file stype; do
+    while IFS=: read -r state srv scope file stype flags; do
+        [[ -z "$flags" ]] && flags=""  # Backward compatibility
         if [[ "$srv" == "$server" ]]; then
             current_state="$state"
             def_scope="$scope"
             def_file="$file"
             source_type="$stype"
+            server_flags="$flags"
             break
         fi
     done < "$STATE_FILE"
@@ -1994,6 +2352,14 @@ launch_fzf_tui() {
     export -f plugin_enabled_in_lower_scope get_project_plugin_value
     export -f get_server_definition_location extract_server_definition
     export -f migrate_server_to_project_mcpjson prompt_for_migration load_servers
+    # Enterprise functions (Phase 6)
+    export -f get_enterprise_mcp_path get_enterprise_settings_path
+    export -f parse_enterprise_mcp_json parse_enterprise_restrictions
+    export -f server_in_allowlist server_in_denylist is_server_allowed
+    export -f show_toggle_error show_enterprise_banner
+    # Enterprise globals
+    export ENTERPRISE_MODE ENTERPRISE_SERVER_COUNT RESTRICTION_TYPE
+    export ALLOWED_SERVERS DENIED_SERVERS
 
     clear
 
@@ -2034,6 +2400,9 @@ launch_fzf_tui() {
     # Compact info bar with write target
     echo -e "${COLOR_CYAN}Write →${COLOR_RESET} ./.claude/settings.local.json  ${COLOR_WHITE}│${COLOR_RESET}  ${COLOR_GREEN}Enabled: ${enabled_count}/${total_count} (${enabled_pct}%)${COLOR_RESET}"
     echo ""
+
+    # Show enterprise banner if applicable (Phase 6)
+    show_enterprise_banner
 
     # Generate dynamic table header that matches column widths
     local table_header
@@ -2102,7 +2471,8 @@ $table_header"
             msg_warning "No servers enabled"
         else
             echo -e "${COLOR_CYAN}Enabled servers (${new_enabled_count}):${COLOR_RESET}"
-            while IFS=: read -r state server scope file source_type; do
+            while IFS=: read -r state server scope file source_type flags; do
+                [[ -z "$flags" ]] && flags=""  # Backward compatibility
                 if [[ "$state" == "on" ]]; then
                     local dim='\033[2m'
                     echo -e "  ${COLOR_GREEN}${MARK_SUCCESS}${COLOR_RESET} $server ${dim}($scope, $source_type)${COLOR_RESET}"

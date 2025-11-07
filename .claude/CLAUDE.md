@@ -18,11 +18,17 @@ This is a bash-based TUI (Text User Interface) tool for managing MCP (Model Cont
 - Atomically updates configuration using temp file + `mv` pattern
 - Automatically launches Claude after configuration changes
 
-### Configuration Sources (7 Files)
+### Configuration Sources (8+ Files)
 
 The tool reads from all available configuration files and merges them with precedence:
 
-**LOCAL SCOPE** (highest priority):
+**ENTERPRISE SCOPE** (highest priority, immutable) **NEW in v1.3.0**:
+- `/etc/claude-code/managed-mcp.json` (Linux) - Enterprise MCP servers
+- `/Library/Application Support/ClaudeCode/managed-mcp.json` (macOS) - Enterprise MCP servers
+- `/etc/claude-code/managed-settings.json` (Linux) - Access policies (allowlist/denylist)
+- `/Library/Application Support/ClaudeCode/managed-settings.json` (macOS) - Access policies
+
+**LOCAL SCOPE**:
 - `./.claude/settings.local.json` - Project-local settings (gitignored)
 
 **PROJECT SCOPE**:
@@ -563,6 +569,159 @@ When `enabledPlugins["plugin@marketplace"] = false` is set in working locations:
 - Exit code 130 from `fzf` = user cancelled (ESC/Ctrl-C)
 - Creates `.claude/` directory automatically if needed
 - **Plugin control**: Uses omit strategy by default to avoid UI disappearance
+- **Enterprise servers**: Highest priority (4), immutable, cannot be toggled or overridden
+
+## Enterprise Support (NEW in v1.3.0)
+
+### Overview
+
+The tool now supports enterprise-managed MCP servers and access control policies deployed by IT administrators. Enterprise configurations have the highest precedence and are immutable by users.
+
+### Enterprise Configuration Files
+
+**Managed MCP Servers** (`managed-mcp.json`):
+- **Linux**: `/etc/claude-code/managed-mcp.json`
+- **macOS**: `/Library/Application Support/ClaudeCode/managed-mcp.json`
+- **Windows**: `C:\ProgramData\ClaudeCode\managed-mcp.json`
+
+Contains `mcpServers` object with enterprise-deployed servers that:
+- Cannot be disabled or modified by users
+- Have highest precedence (priority 4)
+- Always shown with 🏢 indicator
+- Bypass allowlist restrictions (but NOT denylist)
+
+**Access Policies** (`managed-settings.json`):
+- Same locations as above
+- Contains `allowedMcpServers` and `deniedMcpServers` arrays
+- Controls which non-enterprise servers users can enable
+
+### Access Control Rules
+
+**Truth Table** (from ENTERPRISE_FEATURE_PLAN.md lines 142-154):
+
+| allowedMcpServers | deniedMcpServers | Server | Scope | Result | Reason |
+|-------------------|------------------|--------|-------|--------|--------|
+| undefined | undefined | any | any | ✅ Allowed | No restrictions |
+| undefined | [fetch] | fetch | user | ❌ Blocked | In denylist |
+| undefined | [fetch] | fetch | enterprise | ❌ Blocked | Denylist is absolute |
+| [] | undefined | any | user | ❌ Blocked | Empty allowlist = lockdown |
+| [] | undefined | any | enterprise | ✅ Allowed | Enterprise bypasses allowlist |
+| [github] | undefined | github | any | ✅ Allowed | In allowlist |
+| [github] | undefined | fetch | user | ❌ Blocked | Not in allowlist |
+| [github] | [github] | github | any | ❌ Blocked | Denylist wins |
+
+**Key Rules**:
+1. **Denylist is absolute** - Blocks across ALL scopes (including enterprise)
+2. **Allowlist applies to user/project only** - Enterprise servers bypass
+3. **Empty allowlist = lockdown** - Blocks all non-enterprise servers
+4. **Undefined = no restriction** - Allow all
+5. **Contradictions** - Denylist takes precedence
+
+### State File Format (Extended)
+
+**Previous format (v1.2.0)**:
+```
+state:server:scope:file:type
+```
+
+**New format (v1.3.0)**:
+```
+state:server:scope:file:type:flags
+```
+
+**Flags**:
+- `e` = enterprise-managed (immutable)
+- `b` = blocked by denylist
+- `r` = restricted (not in allowlist)
+- Empty = normal server
+
+**Examples**:
+```bash
+on:company-api:enterprise:/etc/.../managed-mcp.json:mcpjson:e     # Enterprise
+off:filesystem:user:~/.mcp.json:mcpjson:b                         # Blocked
+off:random:project:./.mcp.json:mcpjson:r                          # Restricted
+on:github:user:~/.mcp.json:mcpjson:                               # Normal
+```
+
+### UI Indicators
+
+**Visual Markers**:
+- 🏢 ● = Enterprise-managed (cannot modify)
+- 🔒 ○ = Blocked by denylist (cannot enable)
+- ⚠️ ○ = Not in allowlist (cannot enable)
+- ● = Normal enabled
+- ○ = Normal disabled
+
+**Enterprise Banner** (shown when policies active):
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏢 Enterprise Policies Active
+   • 2 enterprise-managed servers (cannot be modified)
+   • Access restricted to 5 approved servers
+   • 1 servers blocked by policy
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Lockdown Mode
+
+**Trigger**: Invalid JSON in `managed-settings.json`
+
+**Behavior**:
+- `ENTERPRISE_MODE="lockdown"`
+- Only enterprise servers available
+- All user/project servers blocked
+- Prominent warning displayed
+- Fail-safe security default
+
+**Rationale**: If IT cannot parse restrictions, better to block everything than risk exposing blocked servers.
+
+### Toggle Validation
+
+**Three validation points in `toggle_server()`** (lines 1405-1432):
+
+1. **Enterprise-managed check** (flag `e`):
+   - Error: "Cannot modify enterprise-managed server"
+   - Action: Contact IT administrator
+
+2. **Blocked server check** (flag `b`, trying to enable):
+   - Error: "Cannot enable blocked server"
+   - Reason: Server in denylist
+
+3. **Restricted server check** (flag `r`, trying to enable):
+   - Error: "Cannot enable restricted server"
+   - Reason: Not in allowlist
+
+### Precedence Update
+
+**Previous** (v1.2.0):
+- Priority 3: Local
+- Priority 2: Project
+- Priority 1: User
+
+**New** (v1.3.0):
+- **Priority 4: Enterprise** (highest, immutable)
+- Priority 3: Local
+- Priority 2: Project
+- Priority 1: User
+
+### Implementation Details
+
+**Platform Detection**:
+- Detects WSL (checks both Windows and Linux paths)
+- Handles macOS paths with spaces
+- Graceful fallback if files don't exist
+
+**Security**:
+- Invalid JSON → Lockdown mode
+- Denylist absolute priority
+- Enterprise servers cannot be overridden
+- Clear error messages guide users to IT
+
+**Backward Compatibility**:
+- 100% compatible with v1.2.0 state files
+- Flags field optional (17 locations check `[[ -z "$flags" ]]`)
+- No enterprise files = normal operation
+- Zero breaking changes
 
 ## New Project Flow
 
