@@ -1993,9 +1993,26 @@ save_state_to_settings() {
         [[ -z "$flags" ]] && flags=""  # Backward compatibility
         [[ -z "$runtime" ]] && runtime="unknown"  # Backward compatibility
 
+        # === ORANGE STATE HANDLING (ALL SERVER TYPES) ===
+        # Servers with runtime==stopped are in ORANGE state (enabled but runtime-disabled)
+        # These MUST be added to disabledMcpServers in ~/.claude.json
+        if [[ "$runtime" == "stopped" ]]; then
+            if [[ "$source_type" == "plugin" ]]; then
+                # Plugins use special format: plugin:mcp-NAME:KEY
+                local plugin_base=$(echo "$server" | sed 's/@.*//')
+                local plugin_key=$(echo "$plugin_base" | sed 's/^mcp-//')
+                disabled_direct+=("plugin:$plugin_base:$plugin_key")
+            else
+                # MCPJSON and Direct servers use plain name
+                disabled_direct+=("$server")
+            fi
+        fi
+
+        # === HANDLE EACH SERVER TYPE ===
         # Handle Direct servers separately
         if [[ "$source_type" == "direct-global" ]] || [[ "$source_type" == "direct-local" ]]; then
-            if [[ "$state" == "off" ]]; then
+            # RED Direct servers also go in disabledMcpServers (if not already added as ORANGE)
+            if [[ "$state" == "off" ]] && [[ "$runtime" != "stopped" ]]; then
                 disabled_direct+=("$server")
             fi
             continue
@@ -2102,12 +2119,16 @@ save_state_to_settings() {
 
     mv "$temp_file" "$target"
 
-    # NEW: Write Direct servers to ~/.claude.json if any are disabled
+    # Write to ~/.claude.json .projects[cwd].disabledMcpServers
+    # This includes:
+    # 1. ORANGE servers (runtime==stopped) - all types with special plugin format
+    # 2. RED Direct servers (state==off)
+    # Always call this to ensure the list is updated (even if empty)
     if [[ ${#disabled_direct[@]} -gt 0 ]]; then
         write_direct_servers_to_claude_json "${disabled_direct[@]}"
     else
-        # Clear disabledMcpServers if no Direct servers are disabled
-        write_direct_servers_to_claude_json  # Empty array
+        # No servers in disabledMcpServers - write empty array
+        write_direct_servers_to_claude_json
     fi
 }
 
