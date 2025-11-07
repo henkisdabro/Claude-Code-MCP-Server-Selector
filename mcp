@@ -597,9 +597,9 @@ handle_new_project_prompt() {
     echo ""
     echo "What would you like to do?"
     echo ""
-    echo "  ${COLOR_GREEN}1)${COLOR_RESET} Create local configuration (.claude/settings.local.json) for this project ${COLOR_CYAN}(Recommended)${COLOR_RESET}"
-    echo "  ${COLOR_YELLOW}2)${COLOR_RESET} Continue with global settings only (changes will still be saved to local)"
-    echo "  ${COLOR_RED}3)${COLOR_RESET} Abort"
+    echo -e "  ${COLOR_GREEN}1)${COLOR_RESET} Create local configuration (.claude/settings.local.json) for this project ${COLOR_CYAN}(Recommended)${COLOR_RESET}"
+    echo -e "  ${COLOR_YELLOW}2)${COLOR_RESET} Continue with global settings only (changes will still be saved to local)"
+    echo -e "  ${COLOR_RED}3)${COLOR_RESET} Abort"
     echo ""
 
     local choice
