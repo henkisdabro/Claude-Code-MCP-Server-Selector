@@ -244,13 +244,19 @@ function Set-MCPServerState {
 function Save-MCPConfiguration {
     <#
     .SYNOPSIS
-        Save MCP server configuration atomically
+        Save MCP server configuration atomically with comprehensive error handling
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [PSCustomObject[]]$Servers
     )
+
+    # Validate input
+    if ($null -eq $Servers -or $Servers.Count -eq 0) {
+        Write-MCPWarning "No servers to save"
+        return $true
+    }
 
     # Separate MCPJSON and Direct servers
     $mcpjsonServers = $Servers | Where-Object { $_.SourceType -eq 'mcpjson' }
@@ -272,36 +278,104 @@ function Save-MCPConfiguration {
 
     # Save to .claude/settings.local.json
     $settingsPath = Join-Path (Get-Location).Path '.claude' 'settings.local.json'
+    $settingsDir = Split-Path $settingsPath -Parent
 
-    # Load existing or create new
-    if (Test-Path $settingsPath) {
-        $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+    try {
+        # Ensure .claude directory exists and is writable
+        if (-not (Test-Path $settingsDir)) {
+            Write-Verbose "Creating .claude directory at $settingsDir"
+            New-Item -ItemType Directory -Path $settingsDir -Force -ErrorAction Stop | Out-Null
+        }
+
+        # Test write permission
+        $testFile = Join-Path $settingsDir ".write-test-$(Get-Random)"
+        try {
+            $null = New-Item -ItemType File -Path $testFile -Force -ErrorAction Stop
+            Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+        }
+        catch {
+            throw "No write permission to $settingsDir. Please check folder permissions."
+        }
+
+        # Load existing or create new
+        if (Test-Path $settingsPath) {
+            try {
+                $settings = Get-Content $settingsPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            }
+            catch {
+                Write-MCPWarning "Existing settings file is corrupted, creating backup and starting fresh"
+                $backupPath = "$settingsPath.corrupted-$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+                Copy-Item $settingsPath $backupPath -Force
+                Write-MCPInfo "Backup saved to $backupPath"
+                $settings = [PSCustomObject]@{}
+            }
+        }
+        else {
+            $settings = [PSCustomObject]@{}
+        }
+
+        # Update arrays
+        $settings | Add-Member -NotePropertyName 'enabledMcpjsonServers' -NotePropertyValue $enabled -Force
+        $settings | Add-Member -NotePropertyName 'disabledMcpjsonServers' -NotePropertyValue $disabled -Force
+
+        # Save atomically
+        $success = New-AtomicFileSave -Path $settingsPath -Content $settings -CreateBackup
+
+        if (-not $success) {
+            throw "Failed to save MCPJSON configuration to $settingsPath"
+        }
+
+        Write-MCPSuccess "Saved configuration to $settingsPath"
     }
-    else {
-        $settings = [PSCustomObject]@{}
+    catch {
+        Write-MCPError "Failed to save configuration: $_"
+
+        # Provide helpful guidance
+        Write-Host ""
+        Write-Host "Troubleshooting:" -ForegroundColor Yellow
+        Write-Host "  1. Check you have write permission to: $settingsDir" -ForegroundColor Gray
+        Write-Host "  2. Ensure the directory is not read-only" -ForegroundColor Gray
+        Write-Host "  3. Close any applications that might have the file open" -ForegroundColor Gray
+        Write-Host ""
+
+        return $false
     }
-
-    # Update arrays
-    $settings | Add-Member -NotePropertyName 'enabledMcpjsonServers' -NotePropertyValue $enabled -Force
-    $settings | Add-Member -NotePropertyName 'disabledMcpjsonServers' -NotePropertyValue $disabled -Force
-
-    # Save atomically
-    $success = New-AtomicFileSave -Path $settingsPath -Content $settings -CreateBackup
-
-    if (-not $success) {
-        throw "Failed to save MCPJSON configuration"
-    }
-
-    Write-MCPSuccess "Saved configuration to $settingsPath"
 
     # Handle Direct servers (ORANGE state) - update disabledMcpServers in .claude.json
     $orangeDirectServers = $directServers | Where-Object { $_.Runtime -eq 'stopped' }
 
-    if ($orangeDirectServers) {
+    if ($orangeDirectServers -and $orangeDirectServers.Count -gt 0) {
         $claudeJsonPath = Join-Path $env:USERPROFILE '.claude.json'
 
-        if (Test-Path $claudeJsonPath) {
-            $claudeJson = Get-Content $claudeJsonPath -Raw | ConvertFrom-Json
+        try {
+            if (-not (Test-Path $claudeJsonPath)) {
+                Write-MCPWarning ".claude.json not found - Direct server overrides not saved"
+                Write-Host "Create $claudeJsonPath manually to use Direct server runtime overrides" -ForegroundColor Gray
+                return $true  # Not fatal
+            }
+
+            # Test write permission
+            $homeDir = Split-Path $claudeJsonPath -Parent
+            $testFile = Join-Path $homeDir ".write-test-$(Get-Random)"
+            try {
+                $null = New-Item -ItemType File -Path $testFile -Force -ErrorAction Stop
+                Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+            }
+            catch {
+                Write-MCPWarning "No write permission to $homeDir - Direct server overrides not saved"
+                return $true  # Not fatal for MCPJSON servers
+            }
+
+            # Load and parse
+            try {
+                $claudeJson = Get-Content $claudeJsonPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            }
+            catch {
+                Write-MCPWarning ".claude.json is corrupted - Direct server overrides not saved"
+                Write-Host "Fix the JSON syntax in $claudeJsonPath" -ForegroundColor Yellow
+                return $true  # Not fatal
+            }
+
             $cwd = (Get-Location).Path
 
             # Ensure projects structure exists
@@ -328,5 +402,11 @@ function Save-MCPConfiguration {
                 Write-MCPSuccess "Saved Direct server overrides to $claudeJsonPath"
             }
         }
+        catch {
+            Write-MCPWarning "Failed to update Direct server overrides: $_"
+            # Not fatal - MCPJSON servers still saved
+        }
     }
+
+    return $true
 }
