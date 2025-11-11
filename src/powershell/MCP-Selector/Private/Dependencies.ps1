@@ -256,67 +256,83 @@ function Install-FzfDependency {
         return $false
     }
 
-    # Choose manager
-    $manager = if ($PreferredManager) {
-        $availableManagers | Where-Object { $_.Name -eq $PreferredManager } | Select-Object -First 1
+    # Order managers by preference if specified
+    $orderedManagers = if ($PreferredManager) {
+        $preferred = $availableManagers | Where-Object { $_.Name -eq $PreferredManager }
+        $others = $availableManagers | Where-Object { $_.Name -ne $PreferredManager }
+        $preferred + $others
     }
     else {
-        $availableManagers | Select-Object -First 1
+        $availableManagers
     }
 
-    if (-not $manager) {
-        Write-MCPError "No suitable package manager found"
-        return $false
-    }
+    # Try each package manager until one succeeds
+    $lastError = $null
+    foreach ($manager in $orderedManagers) {
+        Write-MCPInfo "Trying to install fzf using $($manager.Name)..."
 
-    Write-MCPInfo "Installing fzf using $($manager.Name)..."
-
-    try {
-        switch ($manager.Name) {
-            'winget' {
-                # Use Start-Process to avoid winget's StandardOutputEncoding issue
-                $process = Start-Process -FilePath "winget" `
-                    -ArgumentList "install", "fzf", "--accept-source-agreements", "--accept-package-agreements" `
-                    -NoNewWindow -Wait -PassThru
-                if ($process.ExitCode -ne 0) {
-                    throw "winget install failed with exit code $($process.ExitCode)"
+        try {
+            switch ($manager.Name) {
+                'winget' {
+                    # Use Start-Process to avoid winget's StandardOutputEncoding issue
+                    $process = Start-Process -FilePath "winget" `
+                        -ArgumentList "install", "fzf", "--accept-source-agreements", "--accept-package-agreements", "--silent" `
+                        -NoNewWindow -Wait -PassThru
+                    if ($process.ExitCode -ne 0) {
+                        throw "winget install failed with exit code $($process.ExitCode)"
+                    }
+                }
+                'scoop' {
+                    scoop install fzf
+                }
+                'choco' {
+                    if ($isAdmin) {
+                        choco install fzf -y
+                    }
+                    else {
+                        throw "Chocolatey requires administrator privileges"
+                    }
+                }
+                'brew' {
+                    brew install fzf
                 }
             }
-            'scoop' {
-                scoop install fzf
+
+            # Verify installation
+            # Refresh PATH in current session
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                        [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+            if (Get-Command fzf -ErrorAction SilentlyContinue) {
+                Write-MCPSuccess "fzf installed successfully using $($manager.Name)"
+                return $true
             }
-            'choco' {
-                if ($isAdmin) {
-                    choco install fzf -y
-                }
-                else {
-                    throw "Chocolatey requires administrator privileges"
-                }
-            }
-            'brew' {
-                brew install fzf
+            else {
+                Write-MCPWarning "fzf installation with $($manager.Name) completed but fzf command not found"
+                $lastError = "Installation completed but fzf not in PATH"
             }
         }
-
-        # Verify installation
-        # Refresh PATH in current session
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-                    [System.Environment]::GetEnvironmentVariable("Path", "User")
-
-        if (Get-Command fzf -ErrorAction SilentlyContinue) {
-            Write-MCPSuccess "fzf installed successfully"
-            return $true
-        }
-        else {
-            Write-MCPWarning "fzf installation completed but fzf command not found"
-            Write-Host "You may need to restart PowerShell for PATH changes to take effect" -ForegroundColor Yellow
-            return $false
+        catch {
+            $lastError = "${_}"
+            Write-MCPWarning "Failed to install fzf using $($manager.Name): $lastError"
+            # Continue to next package manager
         }
     }
-    catch {
-        Write-MCPError "Failed to install fzf: ${_}"
-        return $false
+
+    # All package managers failed
+    Write-MCPError "Failed to install fzf with all available package managers"
+    if ($lastError) {
+        Write-Host "Last error: $lastError" -ForegroundColor Gray
     }
+
+    # Provide manual installation instructions
+    Write-Host ""
+    Write-Host "Manual Installation Options:" -ForegroundColor Yellow
+    Write-Host "1. Download from: https://github.com/junegunn/fzf/releases" -ForegroundColor Gray
+    Write-Host "2. Install Scoop (no admin): irm get.scoop.sh | iex" -ForegroundColor Gray
+    Write-Host "3. Use Basic UI: The module works without fzf using Out-GridView" -ForegroundColor Gray
+
+    return $false
 }
 
 function Install-PSFzfModule {
