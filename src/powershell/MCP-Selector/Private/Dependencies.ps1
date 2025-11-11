@@ -274,7 +274,13 @@ function Install-FzfDependency {
     try {
         switch ($manager.Name) {
             'winget' {
-                winget install fzf --accept-source-agreements --accept-package-agreements
+                # Use Start-Process to avoid winget's StandardOutputEncoding issue
+                $process = Start-Process -FilePath "winget" `
+                    -ArgumentList "install", "fzf", "--accept-source-agreements", "--accept-package-agreements" `
+                    -NoNewWindow -Wait -PassThru
+                if ($process.ExitCode -ne 0) {
+                    throw "winget install failed with exit code $($process.ExitCode)"
+                }
             }
             'scoop' {
                 scoop install fzf
