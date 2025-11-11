@@ -119,7 +119,7 @@ function Invoke-MCPSelector {
                     & $claudePath @ClaudeArgs
                 }
                 catch {
-                    Write-MCPError "Failed to launch Claude Code: $_"
+                    Write-MCPError "Failed to launch Claude Code: ${_}"
                     exit 1
                 }
             }
@@ -222,7 +222,7 @@ function Show-MCPSelectorUI {
             -ErrorAction Stop
     }
     catch {
-        Write-MCPError "Out-GridView failed: $_"
+        Write-MCPError "Out-GridView failed: ${_}"
         Write-Host ""
         Write-Host "This may happen if:" -ForegroundColor Yellow
         Write-Host "  • Running over SSH without X11 forwarding" -ForegroundColor Gray
