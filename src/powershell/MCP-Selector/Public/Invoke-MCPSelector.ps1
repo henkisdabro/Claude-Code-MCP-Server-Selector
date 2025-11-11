@@ -138,8 +138,8 @@ function Show-MCPSelectorUI {
     .SYNOPSIS
         Display interactive UI for server selection
     .DESCRIPTION
-        Uses Out-GridView for selection (native, zero dependencies)
-        Future: PSFzf integration for enhanced experience
+        Uses PSFzf (terminal) or Out-GridView (GUI) for selection.
+        Automatically detects available UI and picks the best option.
     #>
     [CmdletBinding()]
     param(
@@ -147,8 +147,38 @@ function Show-MCPSelectorUI {
         [PSCustomObject[]]$Servers
     )
 
-    # TODO: Implement PSFzf integration (requires PSFzf module + fzf.exe)
-    # For now, using Out-GridView (native Windows, zero dependencies)
+    # Detect available UI options
+    $hasPSFzf = $null -ne (Get-Module -ListAvailable -Name PSFzf) -and
+                $null -ne (Get-Command fzf -ErrorAction SilentlyContinue)
+    $hasOutGridView = $null -ne (Get-Command Out-GridView -ErrorAction SilentlyContinue)
+
+    # Determine which UI to use
+    $useUI = if ($hasPSFzf) {
+        'PSFzf'
+    }
+    elseif ($hasOutGridView) {
+        'OutGridView'
+    }
+    else {
+        $null
+    }
+
+    if ($null -eq $useUI) {
+        Write-MCPError "No suitable UI available"
+        Write-Host ""
+        Write-Host "Available options:" -ForegroundColor Cyan
+        Write-Host "  1. Install PSFzf for terminal UI:" -ForegroundColor Gray
+        Write-Host "     Install-Module PSFzf" -ForegroundColor Gray
+        Write-Host "     scoop install fzf" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  2. Use Out-GridView (requires GUI environment)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  3. Use bash version via WSL/Git Bash" -ForegroundColor Gray
+        Write-Host ""
+        return $null
+    }
+
+    Write-MCPInfo "Using $useUI interface"
 
     # Format servers for display
     $displayServers = $Servers | ForEach-Object {
@@ -181,50 +211,107 @@ function Show-MCPSelectorUI {
         }
     }
 
-    # Check if Out-GridView is available
-    $hasOutGridView = Get-Command Out-GridView -ErrorAction SilentlyContinue
-
-    if (-not $hasOutGridView) {
-        Write-MCPError "Out-GridView not available"
-        Write-Host ""
-        Write-Host "Out-GridView requires:" -ForegroundColor Yellow
-        Write-Host "  • Windows Desktop Experience (not Server Core)" -ForegroundColor Gray
-        Write-Host "  • GUI environment (not SSH/headless)" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "Alternatives:" -ForegroundColor Cyan
-        Write-Host "  1. Install PSFzf for terminal UI:" -ForegroundColor Gray
-        Write-Host "     Install-Module PSFzf" -ForegroundColor Gray
-        Write-Host "     scoop install fzf" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "  2. Use bash version via WSL/Git Bash" -ForegroundColor Gray
-        Write-Host ""
-        return $null
+    # Get selection from appropriate UI
+    $selectedDisplay = if ($useUI -eq 'PSFzf') {
+        Invoke-PSFzfSelector -Servers $displayServers
+    }
+    else {
+        Invoke-OutGridViewSelector -Servers $displayServers
     }
 
-    # Check if running as SYSTEM user (cannot display GUI)
-    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $userName = [System.Environment]::UserName
-
-    if ($currentUser -match 'NT AUTHORITY\\SYSTEM|^SYSTEM$' -or $userName -eq 'SYSTEM') {
-        Write-MCPError "Cannot display GUI when running as SYSTEM user"
-        Write-Host ""
-        Write-Host "Out-GridView requires an interactive user session." -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "Please run this tool as a regular user (not SYSTEM):" -ForegroundColor Cyan
-        Write-Host "  1. Close this PowerShell window" -ForegroundColor Gray
-        Write-Host "  2. Open a NEW PowerShell window as your normal Windows user" -ForegroundColor Gray
-        Write-Host "     (You can still 'Run as Administrator' - that's fine!)" -ForegroundColor Gray
-        Write-Host "  3. Then run: mcp" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "Current identity: $currentUser" -ForegroundColor Gray
-        Write-Host "Current username: $userName" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "Alternative: Use the bash version with fzf (no GUI required)" -ForegroundColor Gray
-        Write-Host ""
-        return $null
+    if ($null -eq $selectedDisplay) {
+        return $null  # User cancelled
     }
 
-    Write-Host "Launching interactive selector..." -ForegroundColor Cyan
+    # Update states based on selection
+    return Update-ServerStatesFromSelection -AllServers $Servers -SelectedServers $selectedDisplay
+}
+
+function Invoke-PSFzfSelector {
+    <#
+    .SYNOPSIS
+        PSFzf-based terminal UI for server selection
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject[]]$Servers
+    )
+
+    Import-Module PSFzf -ErrorAction Stop
+
+    Write-Host "Launching PSFzf selector..." -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Instructions:" -ForegroundColor Yellow
+    Write-Host "  • TAB to select/deselect servers" -ForegroundColor Gray
+    Write-Host "  • Type to filter by name" -ForegroundColor Gray
+    Write-Host "  • ENTER to confirm selection" -ForegroundColor Gray
+    Write-Host "  • ESC to cancel" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Status Legend:" -ForegroundColor Yellow
+    Write-Host "  [GREEN]  = Will start when Claude launches" -ForegroundColor Green
+    Write-Host "  [ORANGE] = Available but runtime-disabled" -ForegroundColor Yellow
+    Write-Host "  [RED]    = Completely disabled" -ForegroundColor Red
+    Write-Host ""
+
+    # Build display strings with proper formatting
+    $displayLines = $Servers | ForEach-Object {
+        $line = "$($_.Status) $($_.Flags)$($_.Name) ($($_.Scope), $($_.Type))"
+        [PSCustomObject]@{
+            Display = $line
+            Server  = $_
+        }
+    }
+
+    # Get currently enabled servers for pre-selection
+    $currentlyEnabled = $Servers | Where-Object {
+        $_.'_Original'.State -eq 'on' -and $_.'_Original'.Runtime -ne 'stopped'
+    } | ForEach-Object { $_.Name }
+
+    try {
+        # Use Invoke-Fzf with multi-select
+        $selected = $displayLines.Display | Invoke-Fzf `
+            -Multi `
+            -Prompt "Select servers to ENABLE (TAB to select, ENTER to confirm): " `
+            -Height 40% `
+            -Layout reverse `
+            -Border `
+            -Ansi
+
+        if ($null -eq $selected -or $selected.Count -eq 0) {
+            return $null  # User cancelled or selected nothing
+        }
+
+        # Extract server names from selected lines
+        $selectedNames = $selected | ForEach-Object {
+            # Parse line format: "[STATUS] FLAGS NAME (scope, type)"
+            if ($_ -match '\[(?:GREEN|ORANGE|RED)\]\s*(?:🏢|🔒|⚠️)?\s*(\S+)\s*\(') {
+                $matches[1]
+            }
+        }
+
+        # Return only the selected server objects
+        $result = $Servers | Where-Object { $selectedNames -contains $_.Name }
+        return $result
+    }
+    catch {
+        Write-MCPError "PSFzf selection failed: ${_}"
+        return $null
+    }
+}
+
+function Invoke-OutGridViewSelector {
+    <#
+    .SYNOPSIS
+        Out-GridView-based GUI for server selection
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject[]]$Servers
+    )
+
+    Write-Host "Launching Out-GridView..." -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Instructions:" -ForegroundColor Yellow
     Write-Host "  1. Select servers you want ENABLED (hold Ctrl for multiple)" -ForegroundColor Gray
@@ -239,7 +326,7 @@ function Show-MCPSelectorUI {
 
     # Show grid
     try {
-        $selected = $displayServers | Out-GridView `
+        $selected = $Servers | Out-GridView `
             -Title "MCP Server Selector - Select servers to ENABLE (Ctrl+Click for multiple)" `
             -OutputMode Multiple `
             -ErrorAction Stop
@@ -260,7 +347,8 @@ function Show-MCPSelectorUI {
             Write-Host ""
             Write-Host "Solutions:" -ForegroundColor Cyan
             Write-Host "  1. Run from a direct PowerShell window on the local machine" -ForegroundColor Gray
-            Write-Host "  2. Use the bash version with fzf (terminal-based, no GUI)" -ForegroundColor Gray
+            Write-Host "  2. Install PSFzf: Install-Module PSFzf (terminal-based, works anywhere)" -ForegroundColor Gray
+            Write-Host "  3. Use the bash version with fzf" -ForegroundColor Gray
             Write-Host ""
         }
         else {
@@ -278,26 +366,48 @@ function Show-MCPSelectorUI {
         return $null  # User cancelled
     }
 
-    # Update server states based on selection
-    $selectedNames = @($selected.Name)
+    # Return selected servers
+    return $selected
+}
 
-    foreach ($server in $Servers) {
-        if ($server.Flags -match 'e') {
+function Update-ServerStatesFromSelection {
+    <#
+    .SYNOPSIS
+        Updates server states based on user selection
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject[]]$AllServers,
+
+        [Parameter(Mandatory)]
+        [PSCustomObject[]]$SelectedServers
+    )
+
+    $selectedNames = @($SelectedServers.Name)
+
+    foreach ($server in $AllServers) {
+        # Get the original server object
+        $originalServer = $server
+
+        if ($originalServer.Flags -match 'e') {
             # Skip enterprise servers (cannot modify)
             continue
         }
 
         if ($selectedNames -contains $server.Name) {
             # Selected = enable (GREEN)
-            Set-MCPServerState -Server $server -NewState 'GREEN'
+            $originalServer.State = 'on'
+            $originalServer.Runtime = $null  # Clear runtime-disabled flag
         }
         else {
             # Not selected = disable (RED)
-            Set-MCPServerState -Server $server -NewState 'RED'
+            $originalServer.State = 'off'
+            $originalServer.Runtime = $null
         }
     }
 
-    return $Servers
+    return $AllServers
 }
 
 # Define aliases
