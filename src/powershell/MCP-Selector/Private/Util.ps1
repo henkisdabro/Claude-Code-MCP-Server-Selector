@@ -81,12 +81,18 @@ function New-AtomicFileSave {
         }
 
         # Write to temp file first
+        # Use Depth 100 to handle deeply nested objects (MCP configs can be complex)
+        # Use UTF8NoBOM for cross-platform compatibility
         $tempPath = "$Path.tmp"
-        $Content | ConvertTo-Json -Depth 10 | Set-Content $tempPath -Encoding UTF8 -Force
+        $jsonContent = $Content | ConvertTo-Json -Depth 100 -Compress:$false
+
+        # Ensure consistent line endings and encoding
+        [System.IO.File]::WriteAllText($tempPath, $jsonContent, [System.Text.UTF8Encoding]::new($false))
 
         # Validate JSON
         try {
-            Get-Content $tempPath -Raw | ConvertFrom-Json | Out-Null
+            $testContent = [System.IO.File]::ReadAllText($tempPath, [System.Text.UTF8Encoding]::new($false))
+            $testContent | ConvertFrom-Json | Out-Null
         }
         catch {
             Remove-Item $tempPath -Force -ErrorAction SilentlyContinue

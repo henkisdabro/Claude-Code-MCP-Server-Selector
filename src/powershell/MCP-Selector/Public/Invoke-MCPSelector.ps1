@@ -181,6 +181,26 @@ function Show-MCPSelectorUI {
         }
     }
 
+    # Check if Out-GridView is available
+    $hasOutGridView = Get-Command Out-GridView -ErrorAction SilentlyContinue
+
+    if (-not $hasOutGridView) {
+        Write-MCPError "Out-GridView not available"
+        Write-Host ""
+        Write-Host "Out-GridView requires:" -ForegroundColor Yellow
+        Write-Host "  • Windows Desktop Experience (not Server Core)" -ForegroundColor Gray
+        Write-Host "  • GUI environment (not SSH/headless)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "Alternatives:" -ForegroundColor Cyan
+        Write-Host "  1. Install PSFzf for terminal UI:" -ForegroundColor Gray
+        Write-Host "     Install-Module PSFzf" -ForegroundColor Gray
+        Write-Host "     scoop install fzf" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  2. Use bash version via WSL/Git Bash" -ForegroundColor Gray
+        Write-Host ""
+        return $null
+    }
+
     Write-Host "Launching interactive selector..." -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Instructions:" -ForegroundColor Yellow
@@ -195,9 +215,22 @@ function Show-MCPSelectorUI {
     Write-Host ""
 
     # Show grid
-    $selected = $displayServers | Out-GridView `
-        -Title "MCP Server Selector - Select servers to ENABLE (Ctrl+Click for multiple)" `
-        -OutputMode Multiple
+    try {
+        $selected = $displayServers | Out-GridView `
+            -Title "MCP Server Selector - Select servers to ENABLE (Ctrl+Click for multiple)" `
+            -OutputMode Multiple `
+            -ErrorAction Stop
+    }
+    catch {
+        Write-MCPError "Out-GridView failed: $_"
+        Write-Host ""
+        Write-Host "This may happen if:" -ForegroundColor Yellow
+        Write-Host "  • Running over SSH without X11 forwarding" -ForegroundColor Gray
+        Write-Host "  • Running on Windows Server Core" -ForegroundColor Gray
+        Write-Host "  • Display not available" -ForegroundColor Gray
+        Write-Host ""
+        return $null
+    }
 
     if ($null -eq $selected) {
         return $null  # User cancelled

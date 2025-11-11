@@ -41,13 +41,29 @@ function Get-EnterpriseMCPPath {
     .SYNOPSIS
         Get platform-specific enterprise MCP configuration path
     #>
-    if ($IsWindows) {
+    # Platform detection with fallback for PS 7.0
+    $isWin = if (Get-Variable IsWindows -ErrorAction SilentlyContinue) {
+        $IsWindows
+    }
+    else {
+        $PSVersionTable.PSVersion.Major -le 5 -or [System.Environment]::OSVersion.Platform -eq 'Win32NT'
+    }
+
+    $isMac = if (Get-Variable IsMacOS -ErrorAction SilentlyContinue) {
+        $IsMacOS
+    }
+    else {
+        [System.Environment]::OSVersion.Platform -eq 'Unix' -and
+        (uname) -eq 'Darwin'
+    }
+
+    if ($isWin) {
         # Native Windows
         return Join-Path $env:ProgramData 'ClaudeCode' 'managed-mcp.json'
     }
-    elseif (Test-Path '/proc/version') {
+    elseif (Test-Path '/proc/version' -ErrorAction SilentlyContinue) {
         # WSL - check both Windows and Linux paths
-        $content = Get-Content '/proc/version' -Raw
+        $content = Get-Content '/proc/version' -Raw -ErrorAction SilentlyContinue
         if ($content -match 'microsoft') {
             $winPath = '/mnt/c/ProgramData/ClaudeCode/managed-mcp.json'
             $linPath = '/etc/claude-code/managed-mcp.json'
@@ -58,7 +74,8 @@ function Get-EnterpriseMCPPath {
 
         return '/etc/claude-code/managed-mcp.json'
     }
-    elseif ($IsMacOS) {
+    elseif ($isMac) {
+        # macOS - path has spaces, but PowerShell handles it correctly
         return '/Library/Application Support/ClaudeCode/managed-mcp.json'
     }
     else {
