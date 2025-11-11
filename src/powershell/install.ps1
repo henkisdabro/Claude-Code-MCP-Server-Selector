@@ -431,9 +431,15 @@ function Install-Dependencies {
     if ($install) {
         Write-Host ""
 
-        # Source dependency functions
+        # Source utility functions first (Dependencies.ps1 needs them)
+        $utilFile = Join-Path $PSScriptRoot $ModuleName 'Private' 'Util.ps1'
         $depsFile = Join-Path $PSScriptRoot $ModuleName 'Private' 'Dependencies.ps1'
-        if (Test-Path $depsFile) {
+
+        if ((Test-Path $utilFile) -and (Test-Path $depsFile)) {
+            # Load utilities first
+            . $utilFile
+
+            # Then load dependency functions
             . $depsFile
 
             try {
