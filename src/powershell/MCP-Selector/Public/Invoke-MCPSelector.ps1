@@ -92,6 +92,32 @@ function Invoke-MCPSelector {
         $modified = Show-MCPSelectorUI -Servers $servers
 
         if ($null -ne $modified) {
+            # Show what will be saved (debug)
+            Write-Host ""
+            Write-Host "Configuration changes:" -ForegroundColor Cyan
+            foreach ($server in $modified) {
+                $statusColor = if ($server.State -eq 'on' -and $server.Runtime -ne 'stopped') {
+                    'Green'
+                }
+                elseif ($server.State -eq 'on' -and $server.Runtime -eq 'stopped') {
+                    'Yellow'
+                }
+                else {
+                    'Red'
+                }
+                $statusText = if ($server.State -eq 'on' -and $server.Runtime -ne 'stopped') {
+                    'ENABLED'
+                }
+                elseif ($server.State -eq 'on' -and $server.Runtime -eq 'stopped') {
+                    'AVAILABLE (runtime-disabled)'
+                }
+                else {
+                    'DISABLED'
+                }
+                Write-Host "  • $($server.Name): $statusText" -ForegroundColor $statusColor
+            }
+            Write-Host ""
+
             # Save configuration
             Write-MCPInfo "Saving configuration..."
             Save-MCPConfiguration -Servers $modified
@@ -101,11 +127,15 @@ function Invoke-MCPSelector {
             # Show summary
             $enabledCount = ($modified | Where-Object { $_.State -eq 'on' -and $_.Runtime -ne 'stopped' }).Count
             $orangeCount = ($modified | Where-Object { $_.State -eq 'on' -and $_.Runtime -eq 'stopped' }).Count
+            $disabledCount = ($modified | Where-Object { $_.State -eq 'off' }).Count
 
             Write-Host "Summary:" -ForegroundColor Cyan
-            Write-Host "  • $enabledCount servers enabled (GREEN)" -ForegroundColor Green
+            Write-Host "  • $enabledCount servers will start (GREEN)" -ForegroundColor Green
             if ($orangeCount -gt 0) {
                 Write-Host "  • $orangeCount servers available but disabled (ORANGE)" -ForegroundColor Yellow
+            }
+            if ($disabledCount -gt 0) {
+                Write-Host "  • $disabledCount servers completely disabled (RED)" -ForegroundColor Red
             }
             Write-Host ""
 
