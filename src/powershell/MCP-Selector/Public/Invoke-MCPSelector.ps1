@@ -203,17 +203,23 @@ function Show-MCPSelectorUI {
 
     # Check if running as SYSTEM user (cannot display GUI)
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    if ($currentUser -match 'NT AUTHORITY\\SYSTEM') {
+    $userName = [System.Environment]::UserName
+
+    if ($currentUser -match 'NT AUTHORITY\\SYSTEM|^SYSTEM$' -or $userName -eq 'SYSTEM') {
         Write-MCPError "Cannot display GUI when running as SYSTEM user"
         Write-Host ""
         Write-Host "Out-GridView requires an interactive user session." -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Please run this tool as a regular user (not SYSTEM):" -ForegroundColor Cyan
-        Write-Host "  1. Open a new PowerShell window as your normal user" -ForegroundColor Gray
-        Write-Host "  2. You can still run as Administrator if needed" -ForegroundColor Gray
+        Write-Host "  1. Close this PowerShell window" -ForegroundColor Gray
+        Write-Host "  2. Open a NEW PowerShell window as your normal Windows user" -ForegroundColor Gray
+        Write-Host "     (You can still 'Run as Administrator' - that's fine!)" -ForegroundColor Gray
         Write-Host "  3. Then run: mcp" -ForegroundColor Gray
         Write-Host ""
-        Write-Host "Current user: $currentUser" -ForegroundColor Gray
+        Write-Host "Current identity: $currentUser" -ForegroundColor Gray
+        Write-Host "Current username: $userName" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "Alternative: Use the bash version with fzf (no GUI required)" -ForegroundColor Gray
         Write-Host ""
         return $null
     }
@@ -231,52 +237,40 @@ function Show-MCPSelectorUI {
     Write-Host "  [RED]    = Completely disabled" -ForegroundColor Red
     Write-Host ""
 
-    # Show grid with timeout protection
+    # Show grid
     try {
-        # Use a job to allow timeout detection
-        $job = Start-Job -ScriptBlock {
-            param($Data)
-            $Data | Out-GridView `
-                -Title "MCP Server Selector - Select servers to ENABLE (Ctrl+Click for multiple)" `
-                -OutputMode Multiple
-        } -ArgumentList (,$displayServers)
-
-        # Wait with timeout (30 seconds for GUI to appear)
-        $completed = Wait-Job $job -Timeout 30
-
-        if ($completed) {
-            $selected = Receive-Job $job -ErrorAction Stop
-            Remove-Job $job -Force
-        }
-        else {
-            # Timeout - GUI didn't appear
-            Stop-Job $job -ErrorAction SilentlyContinue
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-
-            Write-MCPError "Out-GridView failed to display (timeout after 30 seconds)"
-            Write-Host ""
-            Write-Host "This may happen if:" -ForegroundColor Yellow
-            Write-Host "  • Running in a context without GUI access" -ForegroundColor Gray
-            Write-Host "  • Display server not responding" -ForegroundColor Gray
-            Write-Host "  • Running over SSH without X11 forwarding" -ForegroundColor Gray
-            Write-Host "  • Running on Windows Server Core" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "Try:" -ForegroundColor Cyan
-            Write-Host "  • Run from a regular user PowerShell window (not SYSTEM)" -ForegroundColor Gray
-            Write-Host "  • Ensure you have desktop GUI access" -ForegroundColor Gray
-            Write-Host "  • Consider using bash version with fzf instead" -ForegroundColor Gray
-            Write-Host ""
-            return $null
-        }
+        $selected = $displayServers | Out-GridView `
+            -Title "MCP Server Selector - Select servers to ENABLE (Ctrl+Click for multiple)" `
+            -OutputMode Multiple `
+            -ErrorAction Stop
     }
     catch {
         Write-MCPError "Out-GridView failed: ${_}"
         Write-Host ""
-        Write-Host "This may happen if:" -ForegroundColor Yellow
-        Write-Host "  • Running over SSH without X11 forwarding" -ForegroundColor Gray
-        Write-Host "  • Running on Windows Server Core" -ForegroundColor Gray
-        Write-Host "  • Display not available" -ForegroundColor Gray
-        Write-Host ""
+
+        # Check specific error conditions
+        if ($_.Exception.Message -match 'remote session') {
+            Write-Host "Out-GridView cannot run in a remote PowerShell session." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "You are likely running PowerShell through:" -ForegroundColor Cyan
+            Write-Host "  • SSH session" -ForegroundColor Gray
+            Write-Host "  • Windows Terminal Server / RDP without local session" -ForegroundColor Gray
+            Write-Host "  • PowerShell job or background task" -ForegroundColor Gray
+            Write-Host "  • SYSTEM user context (scheduled task, service)" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "Solutions:" -ForegroundColor Cyan
+            Write-Host "  1. Run from a direct PowerShell window on the local machine" -ForegroundColor Gray
+            Write-Host "  2. Use the bash version with fzf (terminal-based, no GUI)" -ForegroundColor Gray
+            Write-Host ""
+        }
+        else {
+            Write-Host "This may happen if:" -ForegroundColor Yellow
+            Write-Host "  • Running on Windows Server Core (no GUI)" -ForegroundColor Gray
+            Write-Host "  • Display not available" -ForegroundColor Gray
+            Write-Host "  • Running in headless environment" -ForegroundColor Gray
+            Write-Host ""
+        }
+
         return $null
     }
 
