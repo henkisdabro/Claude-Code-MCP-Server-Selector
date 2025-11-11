@@ -54,7 +54,14 @@ msg_header() {
 }
 
 detect_os() {
-    uname -s
+    # Check if running on Windows (Git Bash, MSYS, Cygwin, WSL)
+    if [[ -n "${MSYSTEM:-}" ]] || [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS* ]] || [[ "$(uname -s)" == CYGWIN* ]]; then
+        echo "Windows"
+    elif grep -qi microsoft /proc/version 2>/dev/null; then
+        echo "WSL"
+    else
+        uname -s
+    fi
 }
 
 detect_user_shell() {
@@ -155,13 +162,83 @@ check_dependencies() {
     echo ""
 
     case "$os" in
-        Linux)
-            # Check for WSL
-            if grep -qi microsoft /proc/version 2>/dev/null; then
-                msg_info "WSL detected - packages can be installed via Linux package manager"
+        Windows)
+            msg_info "Git Bash/MSYS detected on Windows"
+            echo ""
+            echo -e "${COLOR_CYAN}Windows Installation Options:${COLOR_RESET}"
+            echo ""
+
+            # Option 1: Chocolatey
+            if command -v choco &> /dev/null; then
+                echo -e "${COLOR_GREEN}Option 1: Using Chocolatey (detected)${COLOR_RESET}"
+                echo "  choco install ${missing_deps[*]}"
+                echo ""
+            else
+                echo -e "${COLOR_CYAN}Option 1: Using Chocolatey${COLOR_RESET}"
+                echo "  First install Chocolatey from: https://chocolatey.org/install"
+                echo "  Then run: choco install ${missing_deps[*]}"
                 echo ""
             fi
 
+            # Option 2: Scoop
+            if command -v scoop &> /dev/null; then
+                echo -e "${COLOR_GREEN}Option 2: Using Scoop (detected)${COLOR_RESET}"
+                echo "  scoop install ${missing_deps[*]}"
+                echo ""
+            else
+                echo -e "${COLOR_CYAN}Option 2: Using Scoop${COLOR_RESET}"
+                echo "  First install Scoop from: https://scoop.sh"
+                echo "  Then run: scoop install ${missing_deps[*]}"
+                echo ""
+            fi
+
+            # Option 3: Manual
+            echo -e "${COLOR_CYAN}Option 3: Manual Installation${COLOR_RESET}"
+            for dep in "${missing_deps[@]}"; do
+                case "$dep" in
+                    fzf)
+                        echo "  fzf: Download from https://github.com/junegunn/fzf/releases"
+                        echo "       Extract and add to PATH"
+                        ;;
+                    jq)
+                        echo "  jq:  Download from https://jqlang.github.io/jq/download/"
+                        echo "       Rename to jq.exe and add to PATH"
+                        ;;
+                    git)
+                        echo "  git: Download from https://git-scm.com/download/win"
+                        ;;
+                esac
+            done
+            echo ""
+            msg_warning "After installation, restart Git Bash and re-run this installer"
+            ;;
+        WSL)
+            msg_info "WSL detected - using Linux package manager"
+            echo ""
+
+            if command -v apt &> /dev/null; then
+                echo -e "${COLOR_CYAN}Install with:${COLOR_RESET}"
+                echo "  sudo apt update && sudo apt install ${missing_deps[*]}"
+            elif command -v dnf &> /dev/null; then
+                echo -e "${COLOR_CYAN}Install with:${COLOR_RESET}"
+                echo "  sudo dnf install ${missing_deps[*]}"
+            elif command -v yum &> /dev/null; then
+                echo -e "${COLOR_CYAN}Install with:${COLOR_RESET}"
+                echo "  sudo yum install ${missing_deps[*]}"
+            elif command -v pacman &> /dev/null; then
+                echo -e "${COLOR_CYAN}Install with:${COLOR_RESET}"
+                echo "  sudo pacman -S ${missing_deps[*]}"
+            elif command -v zypper &> /dev/null; then
+                echo -e "${COLOR_CYAN}Install with:${COLOR_RESET}"
+                echo "  sudo zypper install ${missing_deps[*]}"
+            elif command -v apk &> /dev/null; then
+                echo -e "${COLOR_CYAN}Install with:${COLOR_RESET}"
+                echo "  sudo apk add ${missing_deps[*]}"
+            else
+                echo -e "${COLOR_CYAN}Install using your Linux distribution's package manager${COLOR_RESET}"
+            fi
+            ;;
+        Linux)
             if command -v apt &> /dev/null; then
                 echo -e "${COLOR_CYAN}Install with:${COLOR_RESET}"
                 echo "  sudo apt update && sudo apt install ${missing_deps[*]}"

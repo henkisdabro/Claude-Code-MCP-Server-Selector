@@ -1,7 +1,7 @@
 # Claude Code MCP Server Selector
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![Shell](https://img.shields.io/badge/Shell-Bash-green.svg)]()
 
 **[🌐 Visit Website](https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/)** | **[📖 Documentation](#readme)** | **[⚡ Quick Start](#quick-start)**
@@ -40,18 +40,38 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 - **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist access control
 - **Smart Migration** - Automatically migrate global servers to project-level control
 - **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
-- **Cross-Platform** - Works on Linux and macOS out of the box
+- **Cross-Platform** - Works on Linux, macOS, and Windows (via Git Bash)
 - **Zero Dependencies** - Just bash, fzf, and jq (easy to install)
 
 ## Quick Start
 
 ### Installation
 
+#### Linux & macOS
+
 One-line install (recommended):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install.sh | bash
 ```
+
+#### Windows
+
+Windows users should use **Git Bash** (included with [Git for Windows](https://git-scm.com/download/win)).
+
+**Quick Setup:**
+1. Install dependencies using [Chocolatey](https://chocolatey.org/install):
+   ```powershell
+   # In PowerShell (as Administrator)
+   choco install fzf jq
+   ```
+
+2. Run installer in **Git Bash**:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install.sh | bash
+   ```
+
+**📖 For detailed Windows setup instructions** (including Scoop and manual installation), see **[WINDOWS_INSTALL.md](WINDOWS_INSTALL.md)**
 
 ### Usage
 
