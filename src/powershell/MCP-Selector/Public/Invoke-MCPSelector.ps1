@@ -256,10 +256,12 @@ function Invoke-PSFzfSelector {
 
     # Build display strings with proper formatting
     $displayLines = $Servers | ForEach-Object {
-        $line = "$($_.Status) $($_.Flags)$($_.Name) ($($_.Scope), $($_.Type))"
+        $flagsPart = if ($_.Flags) { "$($_.Flags) " } else { "" }
+        $line = "$($_.Status) $flagsPart$($_.Name) ($($_.Scope), $($_.Type))"
         [PSCustomObject]@{
             Display = $line
             Server  = $_
+            Name    = $_.Name  # Store name for easy lookup
         }
     }
 
@@ -278,21 +280,28 @@ function Invoke-PSFzfSelector {
             -Border `
             -Ansi
 
-        if ($null -eq $selected -or $selected.Count -eq 0) {
-            return $null  # User cancelled or selected nothing
+        # Check if user cancelled (ESC key)
+        if ($null -eq $selected) {
+            # User pressed ESC - treat as cancellation
+            return $null
         }
 
-        # Extract server names from selected lines
-        $selectedNames = $selected | ForEach-Object {
-            # Parse line format: "[STATUS] FLAGS NAME (scope, type)"
-            if ($_ -match '\[(?:GREEN|ORANGE|RED)\]\s*(?:🏢|🔒|⚠️)?\s*(\S+)\s*\(') {
-                $matches[1]
+        # User pressed ENTER - even with empty selection is valid (disable all)
+        # Convert to array to handle single item properly
+        $selectedArray = @($selected)
+
+        # Match selected display lines back to server objects
+        $selectedServers = foreach ($selectedLine in $selectedArray) {
+            # Find the displayLine object that matches this display string
+            $displayLine = $displayLines | Where-Object { $_.Display -eq $selectedLine } | Select-Object -First 1
+            if ($displayLine) {
+                # Return the server object
+                $displayLine.Server
             }
         }
 
-        # Return only the selected server objects
-        $result = $Servers | Where-Object { $selectedNames -contains $_.Name }
-        return $result
+        # Return selected servers (or empty array if none selected)
+        return @($selectedServers)
     }
     catch {
         Write-MCPError "PSFzf selection failed: ${_}"
@@ -381,29 +390,37 @@ function Update-ServerStatesFromSelection {
         [PSCustomObject[]]$AllServers,
 
         [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [PSCustomObject[]]$SelectedServers
     )
 
-    $selectedNames = @($SelectedServers.Name)
+    # Extract names from selected display servers
+    # Display servers have '_Original' property pointing to the actual server
+    $selectedNames = @($SelectedServers | ForEach-Object {
+        if ($_.PSObject.Properties['_Original']) {
+            $_._Original.Name
+        }
+        else {
+            $_.Name
+        }
+    })
 
+    # Update state of each server based on selection
     foreach ($server in $AllServers) {
-        # Get the original server object
-        $originalServer = $server
-
-        if ($originalServer.Flags -match 'e') {
+        if ($server.Flags -match 'e') {
             # Skip enterprise servers (cannot modify)
             continue
         }
 
         if ($selectedNames -contains $server.Name) {
             # Selected = enable (GREEN)
-            $originalServer.State = 'on'
-            $originalServer.Runtime = $null  # Clear runtime-disabled flag
+            $server.State = 'on'
+            $server.Runtime = $null  # Clear runtime-disabled flag
         }
         else {
             # Not selected = disable (RED)
-            $originalServer.State = 'off'
-            $originalServer.Runtime = $null
+            $server.State = 'off'
+            $server.Runtime = $null
         }
     }
 
