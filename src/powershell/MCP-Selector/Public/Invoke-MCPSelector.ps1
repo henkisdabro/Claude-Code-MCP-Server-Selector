@@ -201,6 +201,23 @@ function Show-MCPSelectorUI {
         return $null
     }
 
+    # Check if running as SYSTEM user (cannot display GUI)
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    if ($currentUser -match 'NT AUTHORITY\\SYSTEM') {
+        Write-MCPError "Cannot display GUI when running as SYSTEM user"
+        Write-Host ""
+        Write-Host "Out-GridView requires an interactive user session." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Please run this tool as a regular user (not SYSTEM):" -ForegroundColor Cyan
+        Write-Host "  1. Open a new PowerShell window as your normal user" -ForegroundColor Gray
+        Write-Host "  2. You can still run as Administrator if needed" -ForegroundColor Gray
+        Write-Host "  3. Then run: mcp" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "Current user: $currentUser" -ForegroundColor Gray
+        Write-Host ""
+        return $null
+    }
+
     Write-Host "Launching interactive selector..." -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Instructions:" -ForegroundColor Yellow
@@ -214,12 +231,43 @@ function Show-MCPSelectorUI {
     Write-Host "  [RED]    = Completely disabled" -ForegroundColor Red
     Write-Host ""
 
-    # Show grid
+    # Show grid with timeout protection
     try {
-        $selected = $displayServers | Out-GridView `
-            -Title "MCP Server Selector - Select servers to ENABLE (Ctrl+Click for multiple)" `
-            -OutputMode Multiple `
-            -ErrorAction Stop
+        # Use a job to allow timeout detection
+        $job = Start-Job -ScriptBlock {
+            param($Data)
+            $Data | Out-GridView `
+                -Title "MCP Server Selector - Select servers to ENABLE (Ctrl+Click for multiple)" `
+                -OutputMode Multiple
+        } -ArgumentList (,$displayServers)
+
+        # Wait with timeout (30 seconds for GUI to appear)
+        $completed = Wait-Job $job -Timeout 30
+
+        if ($completed) {
+            $selected = Receive-Job $job -ErrorAction Stop
+            Remove-Job $job -Force
+        }
+        else {
+            # Timeout - GUI didn't appear
+            Stop-Job $job -ErrorAction SilentlyContinue
+            Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+            Write-MCPError "Out-GridView failed to display (timeout after 30 seconds)"
+            Write-Host ""
+            Write-Host "This may happen if:" -ForegroundColor Yellow
+            Write-Host "  • Running in a context without GUI access" -ForegroundColor Gray
+            Write-Host "  • Display server not responding" -ForegroundColor Gray
+            Write-Host "  • Running over SSH without X11 forwarding" -ForegroundColor Gray
+            Write-Host "  • Running on Windows Server Core" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "Try:" -ForegroundColor Cyan
+            Write-Host "  • Run from a regular user PowerShell window (not SYSTEM)" -ForegroundColor Gray
+            Write-Host "  • Ensure you have desktop GUI access" -ForegroundColor Gray
+            Write-Host "  • Consider using bash version with fzf instead" -ForegroundColor Gray
+            Write-Host ""
+            return $null
+        }
     }
     catch {
         Write-MCPError "Out-GridView failed: ${_}"
