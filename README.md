@@ -1,7 +1,7 @@
 # Claude Code MCP Server Selector
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![Shell](https://img.shields.io/badge/Shell-Bash-green.svg)]()
 
 **[🌐 Visit Website](https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/)** | **[📖 Documentation](#readme)** | **[⚡ Quick Start](#quick-start)**
@@ -40,18 +40,52 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 - **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist access control
 - **Smart Migration** - Automatically migrate global servers to project-level control
 - **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
-- **Cross-Platform** - Works on Linux and macOS out of the box
+- **Cross-Platform** - Works on Linux, macOS, and Windows (via Git Bash)
 - **Zero Dependencies** - Just bash, fzf, and jq (easy to install)
 
 ## Quick Start
 
 ### Installation
 
+#### Linux & macOS
+
 One-line install (recommended):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install.sh | bash
 ```
+
+#### Windows
+
+**Two options available for Windows users:**
+
+**Option 1: Native PowerShell Version (Recommended)** ⭐ **NEW!**
+
+Native PowerShell implementation with **zero external dependencies**.
+
+```powershell
+# Clone and install
+git clone https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector.git
+cd Claude-Code-MCP-Server-Selector/src/powershell
+.\install.ps1
+
+# Use
+mcp
+```
+
+✅ No Git Bash • ✅ No fzf/jq • ✅ Native Windows GUI • ✅ Same configs
+
+**Option 2: Bash Version (via Git Bash)**
+
+Traditional bash version:
+
+1. Install dependencies: `choco install fzf jq`
+2. Run installer in Git Bash:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install.sh | bash
+   ```
+
+**📖 Detailed Windows guide:** **[WINDOWS_INSTALL.md](WINDOWS_INSTALL.md)**
 
 ### Usage
 
