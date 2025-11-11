@@ -96,7 +96,7 @@ function New-AtomicFileSave {
         }
         catch {
             Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
-            throw "Generated invalid JSON: $_"
+            throw "Generated invalid JSON: ${_}"
         }
 
         # Atomic move
@@ -106,7 +106,7 @@ function New-AtomicFileSave {
         return $true
     }
     catch {
-        Write-Error "Failed to save file $Path: $_"
+        Write-Error "Failed to save file ${Path}: ${_}"
         return $false
     }
 }

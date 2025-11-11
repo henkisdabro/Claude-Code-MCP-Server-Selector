@@ -328,7 +328,7 @@ function Save-MCPConfiguration {
         Write-MCPSuccess "Saved configuration to $settingsPath"
     }
     catch {
-        Write-MCPError "Failed to save configuration: $_"
+        Write-MCPError "Failed to save configuration: ${_}"
 
         # Provide helpful guidance
         Write-Host ""
@@ -403,7 +403,7 @@ function Save-MCPConfiguration {
             }
         }
         catch {
-            Write-MCPWarning "Failed to update Direct server overrides: $_"
+            Write-MCPWarning "Failed to update Direct server overrides: ${_}"
             # Not fatal - MCPJSON servers still saved
         }
     }

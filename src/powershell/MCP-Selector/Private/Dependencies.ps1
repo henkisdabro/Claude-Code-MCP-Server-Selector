@@ -85,7 +85,7 @@ function Set-ExecutionPolicyIfNeeded {
         return $true
     }
     catch {
-        Write-MCPError "Failed to update execution policy: $_"
+        Write-MCPError "Failed to update execution policy: ${_}"
         Write-Host ""
         Write-Host "Please run manually as Administrator:" -ForegroundColor Yellow
         Write-Host "  Set-ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor Cyan
@@ -183,7 +183,7 @@ function Install-Scoop {
         }
     }
     catch {
-        Write-MCPError "Failed to install Scoop: $_"
+        Write-MCPError "Failed to install Scoop: ${_}"
         Write-Host ""
         Write-Host "Manual installation:" -ForegroundColor Yellow
         Write-Host "  Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression" -ForegroundColor Cyan
@@ -308,7 +308,7 @@ function Install-FzfDependency {
         }
     }
     catch {
-        Write-MCPError "Failed to install fzf: $_"
+        Write-MCPError "Failed to install fzf: ${_}"
         return $false
     }
 }
@@ -345,7 +345,7 @@ function Install-PSFzfModule {
         return $true
     }
     catch {
-        Write-MCPError "Failed to install PSFzf module: $_"
+        Write-MCPError "Failed to install PSFzf module: ${_}"
 
         # Check common issues
         if ($_.Exception.Message -match 'Unable to resolve package source') {
@@ -388,7 +388,7 @@ function Install-EnhancedUI {
 
     Write-Host ""
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray
-    Write-ColorOutput -Message "Enhanced UI Installation" -ForegroundColor Cyan
+    Write-Host "Enhanced UI Installation" -ForegroundColor Cyan
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray
     Write-Host ""
 

@@ -44,7 +44,7 @@ function Get-EnterpriseMCPConfig {
         }
     }
     catch {
-        Write-MCPWarning "Failed to parse enterprise config (entering lockdown mode): $_"
+        Write-MCPWarning "Failed to parse enterprise config (entering lockdown mode): ${_}"
         return @{
             Servers = @()
             Mode    = 'lockdown'
@@ -104,7 +104,7 @@ function Get-EnterpriseRestrictions {
         }
     }
     catch {
-        Write-MCPWarning "Failed to parse enterprise restrictions (entering lockdown): $_"
+        Write-MCPWarning "Failed to parse enterprise restrictions (entering lockdown): ${_}"
         return @{
             Allowlist = @()
             Denylist  = @()

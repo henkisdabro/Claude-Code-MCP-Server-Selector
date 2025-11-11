@@ -187,7 +187,7 @@ function ConvertFrom-MCPSettings {
         }
     }
     catch {
-        Write-MCPWarning "Failed to parse $Path: $_"
+        Write-MCPWarning "Failed to parse ${Path}: ${_}"
         return @{
             Definitions = @()
             Enabled     = @()
@@ -243,7 +243,7 @@ function ConvertFrom-MCPJson {
         }
     }
     catch {
-        Write-MCPWarning "Failed to parse $Path: $_"
+        Write-MCPWarning "Failed to parse ${Path}: ${_}"
         return @{
             Definitions = @()
         }
@@ -331,7 +331,7 @@ function ConvertFrom-ClaudeJson {
         }
     }
     catch {
-        Write-MCPWarning "Failed to parse $Path: $_"
+        Write-MCPWarning "Failed to parse ${Path}: ${_}"
         return @{
             GlobalDefinitions = @()
             LocalDefinitions  = @()
