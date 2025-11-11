@@ -280,6 +280,101 @@ function Get-InstallationPath {
     }
 }
 
+function Remove-ConflictingInstallation {
+    param(
+        [string]$CurrentScope,
+        [bool]$IsAdmin
+    )
+
+    # Determine the OTHER scope's path
+    $otherScope = if ($CurrentScope -eq 'CurrentUser') { 'AllUsers' } else { 'CurrentUser' }
+
+    $otherBasePath = if ($otherScope -eq 'CurrentUser') {
+        if ($IsWindows) {
+            Join-Path $env:USERPROFILE 'Documents' 'PowerShell' 'Modules'
+        }
+        else {
+            Join-Path $HOME '.local' 'share' 'powershell' 'Modules'
+        }
+    }
+    else {
+        if ($IsWindows) {
+            Join-Path $env:ProgramFiles 'PowerShell' 'Modules'
+        }
+        else {
+            '/usr/local/share/powershell/Modules'
+        }
+    }
+
+    $otherModulePath = Join-Path $otherBasePath $ModuleName
+
+    # Check if module exists in other scope
+    if (Test-Path $otherModulePath) {
+        Write-Host ""
+        Write-Warning "Conflicting installation detected!"
+        Write-Host ""
+        Write-Host "Current installation: $CurrentScope" -ForegroundColor Cyan
+        Write-Host "Conflicting location: $otherModulePath" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "PowerShell prefers the $otherScope location, which may cause the old" -ForegroundColor Yellow
+        Write-Host "version to be loaded instead of the new one you're installing." -ForegroundColor Yellow
+        Write-Host ""
+
+        # Try to remove if we have permission
+        $canRemove = Test-WritePermission $otherBasePath
+
+        if ($canRemove) {
+            $response = Read-Host "Remove conflicting installation? (Y/n)"
+
+            if ($response -notmatch '^[Nn]') {
+                try {
+                    Write-Info "Removing conflicting installation..."
+                    Remove-Item $otherModulePath -Recurse -Force -ErrorAction Stop
+                    Write-Success "Conflicting installation removed"
+                    Write-Host ""
+                }
+                catch {
+                    Write-Failure "Failed to remove conflicting installation: $_"
+                    Write-Host ""
+                    Write-Host "Manual removal required:" -ForegroundColor Yellow
+                    Write-Host "  Remove-Item '$otherModulePath' -Recurse -Force" -ForegroundColor Cyan
+                    Write-Host ""
+                }
+            }
+            else {
+                Write-Warning "Keeping conflicting installation - you may need to manually import the module"
+                Write-Host ""
+                Write-Host "After installation, to use the new version in this session:" -ForegroundColor Cyan
+                Write-Host "  Remove-Module MCP-Selector -Force -ErrorAction SilentlyContinue" -ForegroundColor Gray
+                Write-Host "  Import-Module MCP-Selector -Force" -ForegroundColor Gray
+                Write-Host ""
+            }
+        }
+        else {
+            if ($otherScope -eq 'AllUsers') {
+                Write-Host "Cannot remove automatically (requires administrator privileges)" -ForegroundColor Red
+                Write-Host ""
+                Write-Host "To permanently fix this, run PowerShell AS ADMINISTRATOR and execute:" -ForegroundColor Cyan
+                Write-Host "  Remove-Item '$otherModulePath' -Recurse -Force" -ForegroundColor Gray
+                Write-Host ""
+                Write-Host "Then reinstall this module as a regular user." -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "OR, after installation completes, to use new version in this session:" -ForegroundColor Yellow
+                Write-Host "  Remove-Module MCP-Selector -Force -ErrorAction SilentlyContinue" -ForegroundColor Gray
+                Write-Host "  Import-Module MCP-Selector -Force" -ForegroundColor Gray
+                Write-Host ""
+            }
+            else {
+                Write-Host "Cannot remove automatically (permission denied)" -ForegroundColor Red
+                Write-Host ""
+                Write-Host "Manual removal required:" -ForegroundColor Yellow
+                Write-Host "  Remove-Item '$otherModulePath' -Recurse -Force" -ForegroundColor Gray
+                Write-Host ""
+            }
+        }
+    }
+}
+
 # ============================================================================
 # MODULE INSTALLATION
 # ============================================================================
@@ -471,6 +566,9 @@ try {
 
     # Determine installation path
     $paths = Get-InstallationPath -RequestedScope $Scope -IsAdmin $isAdmin
+
+    # Check for and handle conflicting installations
+    Remove-ConflictingInstallation -CurrentScope $paths.Scope -IsAdmin $isAdmin
 
     # Install module files
     $installed = Install-Module-Files -Paths $paths
