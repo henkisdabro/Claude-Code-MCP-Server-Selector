@@ -57,21 +57,35 @@ curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-
 
 #### Windows
 
-Windows users should use **Git Bash** (included with [Git for Windows](https://git-scm.com/download/win)).
+**Two options available for Windows users:**
 
-**Quick Setup:**
-1. Install dependencies using [Chocolatey](https://chocolatey.org/install):
-   ```powershell
-   # In PowerShell (as Administrator)
-   choco install fzf jq
-   ```
+**Option 1: Native PowerShell Version (Recommended)** ⭐ **NEW!**
 
-2. Run installer in **Git Bash**:
+Native PowerShell implementation with **zero external dependencies**.
+
+```powershell
+# Clone and install
+git clone https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector.git
+cd Claude-Code-MCP-Server-Selector/src/powershell
+.\install.ps1
+
+# Use
+mcp
+```
+
+✅ No Git Bash • ✅ No fzf/jq • ✅ Native Windows GUI • ✅ Same configs
+
+**Option 2: Bash Version (via Git Bash)**
+
+Traditional bash version:
+
+1. Install dependencies: `choco install fzf jq`
+2. Run installer in Git Bash:
    ```bash
    curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install.sh | bash
    ```
 
-**📖 For detailed Windows setup instructions** (including Scoop and manual installation), see **[WINDOWS_INSTALL.md](WINDOWS_INSTALL.md)**
+**📖 Detailed Windows guide:** **[WINDOWS_INSTALL.md](WINDOWS_INSTALL.md)**
 
 ### Usage
 

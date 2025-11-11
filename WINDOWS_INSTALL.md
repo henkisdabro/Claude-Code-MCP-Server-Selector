@@ -2,9 +2,39 @@
 
 This guide will help you install and use the Claude Code MCP Server Selector on Windows.
 
-## Prerequisites
+## Two Versions Available
 
-The MCP Server Selector is a bash-based tool that requires a bash environment and two dependencies: `fzf` and `jq`. Windows users have several options for running bash scripts.
+### **Option 1: Native PowerShell Version** (Recommended for Windows) ⭐
+
+**NEW!** A native PowerShell implementation with zero external dependencies (uses built-in Out-GridView).
+
+**Advantages:**
+- ✅ No Git Bash required
+- ✅ No external dependencies (fzf/jq not needed)
+- ✅ Native Windows experience
+- ✅ Works with PowerShell 7+
+- ✅ Same configuration files as bash version
+
+**Installation:**
+```powershell
+# Clone the repository
+git clone https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector.git
+cd Claude-Code-MCP-Server-Selector/src/powershell
+
+# Run the installer
+.\install.ps1
+```
+
+**Usage:**
+```powershell
+mcp        # Launch selector
+```
+
+See [PowerShell Installation](#powershell-native-version) below for details.
+
+### **Option 2: Bash Version** (via Git Bash)
+
+The original bash-based tool that requires a bash environment and two dependencies: `fzf` and `jq`.
 
 ## Recommended Setup: Git Bash
 
@@ -205,14 +235,110 @@ Git Bash uses `~/.bashrc` or `~/.bash_profile` for configuration.
 
 Run Git Bash **as Administrator** and try again.
 
-## Future: Native PowerShell Support
+## PowerShell Native Version
 
-We're considering a native PowerShell version using:
-- **PSFzf** module instead of fzf
-- Native PowerShell JSON cmdlets instead of jq
-- Full Windows integration
+### Installation
 
-If you're interested in this, please upvote or comment on the GitHub issue!
+**Requirements:**
+- PowerShell 7.0 or higher ([Download](https://aka.ms/powershell))
+- Git for Windows (to clone repository)
+
+**Step 1: Install PowerShell 7+**
+
+1. Download from: https://aka.ms/powershell
+2. Run the installer
+3. Verify: Open PowerShell and run `$PSVersionTable.PSVersion`
+
+**Step 2: Clone and Install Module**
+
+```powershell
+# Clone repository
+git clone https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector.git
+
+# Navigate to PowerShell module
+cd Claude-Code-MCP-Server-Selector/src/powershell
+
+# Run installer
+.\install.ps1
+```
+
+The installer will:
+- Check PowerShell version
+- Copy module to your PowerShell modules directory
+- Set up `mcp` and `claudemcp` aliases
+- Optionally install PSFzf for enhanced UI
+
+**Step 3: Verify Installation**
+
+```powershell
+# Check module is loaded
+Get-Module MCP-Selector
+
+# Get help
+Get-Help Invoke-MCPSelector -Full
+
+# Launch selector
+mcp
+```
+
+### Usage
+
+The PowerShell version works identically to the bash version:
+
+```powershell
+# Launch interactive selector
+mcp
+
+# Launch with specific project
+mcp C:\Users\YourName\Projects\MyApp
+
+# Get help
+mcp -?
+```
+
+### Enhanced UI (Optional)
+
+For an enhanced TUI experience similar to the bash version:
+
+```powershell
+# Install PSFzf module
+Install-Module PSFzf -Scope CurrentUser
+
+# Install fzf.exe via Scoop
+scoop install fzf
+
+# OR via Chocolatey
+choco install fzf
+```
+
+**Without PSFzf:** Uses native Out-GridView (GUI selector)
+**With PSFzf:** Uses fzf terminal UI (identical to bash version)
+
+### Configuration
+
+The PowerShell version uses the **same configuration files** as the bash version:
+- `.claude/settings.json`
+- `.claude/settings.local.json`
+- `.mcp.json`
+- `~/.claude.json`
+
+This means:
+- ✅ You can switch between bash and PowerShell versions
+- ✅ Both versions read the same configs
+- ✅ No migration needed
+- ✅ Fully compatible
+
+### Updating
+
+```powershell
+# Pull latest changes
+cd Claude-Code-MCP-Server-Selector
+git pull
+
+# Reinstall module
+cd src/powershell
+.\install.ps1
+```
 
 ## Getting Help
 
