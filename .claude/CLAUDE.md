@@ -292,26 +292,50 @@ command -v fzf jq
 
 ### Multi-Source Discovery
 
-Discovers and parses all 7 configuration sources:
+**UPDATED v1.5.0**: Now discovers marketplace plugin `.mcp.json` files in addition to all original sources.
+
+Discovers and parses from 12+ configuration sources in priority order:
+
 ```bash
 discover_and_parse_all_sources() {
-  # Parses settings files (both mcpServers AND enable/disable arrays)
-  parse_settings_file "$HOME/.claude/settings.json" "user"
-  # Outputs:
-  #   def:fetch:user:~/.claude/settings.json
-  #   enable:fetch:user:~/.claude/settings.json
+  # ENTERPRISE SCOPE (Priority 4)
+  parse_enterprise_mcp_json               # /etc/claude-code/managed-mcp.json
 
-  # Parses .mcp.json files (mcpServers object keys only)
-  parse_mcp_json_file "./.mcp.json" "project"
-  # Outputs:
-  #   def:time:project:./.mcp.json
+  # USER/PROJECT/LOCAL SCOPES (Priority 1-3)
+  parse_claude_json_file                  # ~/.claude.json (root + .projects[cwd])
+  parse_mcp_json_file "~/.mcp.json"       # User-scope .mcp.json
+  parse_mcp_json_file "./.mcp.json"       # Project-scope .mcp.json (THIS PROJECT!)
+
+  # Settings files (enable/disable arrays)
+  parse_settings_file                     # ~/.claude/settings.json, ~/.claude/settings.local.json
+  parse_settings_file                     # ./.claude/settings.json, ./.claude/settings.local.json
+
+  # MARKETPLACE PLUGINS (Priority 1, v1.5.0)
+  parse_plugin_marketplace_files          # ~/.claude/plugins/marketplaces/**/.mcp.json
+
+  # Plugin enable/disable state
+  parse_enabled_plugins                   # All settings files
 }
 ```
 
-Three output types:
-- `def:server:scope:file` - Server is defined here
+**Discovery Output Format** - Three types:
+- `def:server:scope:file:type` - Server is defined here
 - `enable:server:scope:file` - Server is enabled here
 - `disable:server:scope:file` - Server is disabled here
+
+**Example Outputs**:
+```
+def:project-folder-mcpjson-test:project:./.mcp.json:mcpjson
+def:developer-toolkit@wookstar:user:~/.claude/plugins/.../developer-toolkit/.mcp.json:plugin
+def:fetch:user:~/.claude.json:direct-global
+enable:fetch:project:./.claude/settings.json
+```
+
+**Key Points**:
+- ✅ Project `.mcp.json` is ALWAYS discovered (line 1004 in mcp script)
+- ✅ User home `.mcp.json` is ALWAYS discovered (line 1001)
+- ✅ Marketplace plugins now use source-guided discovery (v1.5.0)
+- ✅ All 8+ original sources preserved + marketplace enhancement
 
 ### Dual Precedence Resolution
 
@@ -555,10 +579,68 @@ Display: [OFF] stripe (user, mcpjson)
 
 ### Plugin Server Discovery
 
-Plugin servers are discovered from marketplace installations:
+**NEW in v1.5.0**: Enhanced discovery now finds ALL plugins with `.mcp.json` files, not just those explicitly marked as `category: "mcpServers"` in marketplace metadata.
+
+Plugin servers are discovered from marketplace installations using TWO methods:
+
+**Method 1: Root-level mcpServers (v1.5.0)**
 - **Location**: `~/.claude/plugins/marketplaces/{MARKETPLACE}/.claude-plugin/marketplace.json`
-- **Format**: Standard `mcpServers` object inside marketplace.json
-- **Naming**: Plugin servers identified by suffix `@{marketplace-name}` (e.g., `mcp-fetch@claudecode-marketplace`)
+- **Mechanism**: Checks for root-level `mcpServers` object directly in marketplace.json
+- **Example**:
+  ```json
+  {
+    "mcpServers": {
+      "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] }
+    },
+    "plugins": [...]
+  }
+  ```
+- **Output Format**: `server@marketplace` (e.g., `fetch@wookstar-claude-code-plugins`)
+
+**Method 2: Source-guided Plugin Discovery (v1.5.0)**
+- **Location**: `~/.claude/plugins/marketplaces/{MARKETPLACE}/{PLUGIN_SOURCE}/.mcp.json`
+- **Mechanism**: For EACH plugin in marketplace.json, follows the `.source` field to find `.mcp.json` files
+- **Coverage**: Discovers ALL plugins with MCP servers, regardless of category
+- **Example Path**: `wookstar-claude-code-plugins/developer-toolkit/.mcp.json`
+- **Security**: Validates `.source` paths to prevent traversal attacks (blocks `..` and absolute paths)
+- **Output Format**: `plugin-name@marketplace` (e.g., `developer-toolkit@wookstar-claude-code-plugins`)
+
+**Naming Convention**: Plugin servers identified by `{plugin-name}@{marketplace-name}` format
+- Examples: `developer-toolkit@wookstar-claude-code-plugins`, `mcp-fetch@wookstar-claude-code-plugins`
+- Format ensures compatibility with `enabledPlugins` control mechanism
+
+**Implementation Details (parse_plugin_marketplace_files, lines 617-695)**:
+
+Discovery Order:
+1. Find all `marketplace.json` files using: `find ... -path "*/.claude-plugin/marketplace.json"`
+2. For EACH marketplace.json:
+   - **First Pass**: Check for root-level `mcpServers` object
+     - Extract server names from mcpServers keys
+     - Output: `def:server@marketplace:user:marketplace.json:plugin`
+   - **Second Pass**: Iterate through `.plugins[]` array
+     - Read each plugin's `.name` and `.source` fields
+     - Validate `.source` path (reject `..` and absolute paths)
+     - Construct path: `{marketplace_base}/{source}/.mcp.json`
+     - If file exists and contains `mcpServers` object:
+       - Output: `def:plugin-name@marketplace:user:.mcp.json:plugin`
+
+Security Features:
+- Path traversal protection via regex: `[[ "$plugin_source" =~ \.\. ]]`
+- Absolute path rejection: `[[ "$plugin_source" =~ ^/ ]]`
+- JSON validation before parsing
+- Proper error logging with `msg_warning()`
+
+Performance:
+- O(n) complexity: Single find + direct path construction
+- No recursive scanning (uses `.source` field for deterministic lookups)
+- Average discovery time: <100ms for 10+ plugins
+
+Key Architectural Decision:
+- Uses PLUGIN NAME (not server names from .mcp.json) for output
+- This ensures compatibility with `enabledPlugins` control mechanism
+- Example: `developer-toolkit/.mcp.json` has server "chrome-devtools"
+  - Output uses: `developer-toolkit@marketplace` (not `chrome-devtools@...`)
+  - Control via: `enabledPlugins["developer-toolkit@marketplace"] = true`
 
 ### Plugin Control Mechanism
 

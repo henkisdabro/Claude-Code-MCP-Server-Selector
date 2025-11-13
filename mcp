@@ -11,7 +11,7 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly VERSION="1.4.0"  # 3-way toggle (ORANGE state) + 10x performance boost
+readonly VERSION="1.5.0"  # Enhanced marketplace plugin discovery (all categories)
 
 # Performance: FAST_MODE skips runtime detection (saves 5-8 seconds)
 # - Default: true (instant startup)
@@ -608,7 +608,12 @@ parse_enabled_plugins() {
 
 # Discover plugin servers from marketplace installations
 # Output: Lines in format "def:server:scope:file:plugin"
-# Example: def:mcp-fetch@claudecode-marketplace:user:~/.claude/plugins/marketplaces/claudecode-marketplace/.claude-plugin/marketplace.json:plugin
+# Example: def:developer-toolkit@wookstar:user:~/.claude/plugins/marketplaces/wookstar/.../developer-toolkit/.mcp.json:plugin
+#
+# ENHANCEMENT v1.5.0: Now discovers ALL plugins with .mcp.json files, not just those
+# with category=="mcpServers". Uses the plugin's .source field to directly locate
+# .mcp.json files, ensuring complete coverage while maintaining naming compatibility
+# with enabledPlugins control mechanism.
 parse_plugin_marketplace_files() {
     local marketplace_dir="$HOME/.claude/plugins/marketplaces"
 
@@ -623,29 +628,71 @@ parse_plugin_marketplace_files() {
 
         # Validate JSON
         if ! jq empty "$marketplace_file" 2>/dev/null; then
+            msg_warning "Skipping invalid marketplace JSON: $marketplace_file"
             continue
         fi
 
-        # Extract marketplace name from path
-        # Path: ~/.claude/plugins/marketplaces/claudecode-marketplace/.claude-plugin/marketplace.json
-        local marketplace_name
-        marketplace_name=$(echo "$marketplace_file" | sed 's|.*/marketplaces/\([^/]*\)/.*|\1|')
+        # Extract marketplace name from path using safe parameter expansion
+        local rel_path="${marketplace_file#$marketplace_dir/}"
+        local marketplace_name="${rel_path%%/*}"
 
-        # Extract plugin names from plugins array where category == "mcpServers"
-        # Use the plugin .name field (e.g., "mcp-fetch") not the mcpServers keys
-        # This matches the format used in enabledPlugins
-        local plugins
-        plugins=$(jq -r '.plugins[]? | select(.category == "mcpServers") | .name // empty' "$marketplace_file" 2>/dev/null | sort -u)
+        # Get marketplace base directory (parent of .claude-plugin)
+        local marketplace_base
+        marketplace_base=$(dirname "$marketplace_file")
+        marketplace_base=$(dirname "$marketplace_base")
 
-        if [[ -n "$plugins" ]]; then
-            while IFS= read -r plugin_name; do
-                [[ -z "$plugin_name" ]] && continue
-                # Append marketplace name to plugin for unique identification
-                local plugin_server="${plugin_name}@${marketplace_name}"
-                echo "def:$plugin_server:user:$marketplace_file:plugin"
-            done <<< "$plugins"
+        # FIRST: Check for root-level mcpServers in marketplace.json itself
+        local has_root_servers
+        has_root_servers=$(jq -r 'has("mcpServers")' "$marketplace_file" 2>/dev/null)
+        if [[ "$has_root_servers" == "true" ]]; then
+            # Parse servers from root-level mcpServers object
+            local root_servers
+            root_servers=$(jq -r '.mcpServers | keys[]? // empty' "$marketplace_file" 2>/dev/null)
+            if [[ -n "$root_servers" ]]; then
+                while IFS= read -r server; do
+                    [[ -z "$server" ]] && continue
+                    # Format: server@marketplace (root-level servers use server name directly)
+                    local full_name="${server}@${marketplace_name}"
+                    echo "def:${full_name}:user:${marketplace_file}:plugin"
+                done <<< "$root_servers"
+            fi
         fi
-    done < <(find "$marketplace_dir" -name "marketplace.json" 2>/dev/null)
+
+        # SECOND: For EACH plugin (regardless of category), check if .source/.mcp.json exists
+        jq -r '.plugins[]? | "\(.name):\(.source)"' "$marketplace_file" 2>/dev/null | \
+        while IFS=: read -r plugin_name plugin_source; do
+            [[ -z "$plugin_name" ]] || [[ -z "$plugin_source" ]] && continue
+
+            # Security: Validate source path (prevent path traversal)
+            if [[ "$plugin_source" =~ \.\. ]] || [[ "$plugin_source" =~ ^/ ]]; then
+                msg_warning "Skipping plugin with unsafe path: $plugin_name ($plugin_source)"
+                continue
+            fi
+
+            # Construct path to .mcp.json using .source field
+            local mcp_file="${marketplace_base}/${plugin_source}/.mcp.json"
+
+            # Check if .mcp.json exists for this plugin
+            [[ ! -f "$mcp_file" ]] && continue
+
+            # Validate .mcp.json structure
+            if ! jq empty "$mcp_file" 2>/dev/null; then
+                msg_warning "Skipping plugin with invalid .mcp.json: $plugin_name ($mcp_file)"
+                continue
+            fi
+
+            # Check if .mcp.json has mcpServers object
+            local has_servers
+            has_servers=$(jq -r 'has("mcpServers")' "$mcp_file" 2>/dev/null)
+            [[ "$has_servers" != "true" ]] && continue
+
+            # Output using PLUGIN NAME (not server names from .mcp.json)
+            # Format: plugin-name@marketplace
+            # This ensures compatibility with enabledPlugins control mechanism
+            local full_name="${plugin_name}@${marketplace_name}"
+            echo "def:${full_name}:user:${mcp_file}:plugin"
+        done
+    done < <(find "$marketplace_dir" -path "*/.claude-plugin/marketplace.json" -type f 2>/dev/null)
 }
 
 # ============================================================================

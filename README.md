@@ -33,10 +33,11 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 ## Features
 
 - **Context Window Optimization** - Enable only the MCP servers you need, minimize token waste
-- **3-Way Toggle Cycle** - Cycle servers through RED (off) → GREEN (on) → ORANGE (available but disabled) **(NEW)**
+- **3-Way Toggle Cycle** - Cycle servers through RED (off) → GREEN (on) → ORANGE (available but disabled)
 - **Interactive TUI** - Fast, intuitive interface powered by fzf (<1 second startup)
 - **Real-time Updates** - Toggle servers instantly with visual feedback
-- **Multi-Source Configuration** - Discovers and merges 7 configuration sources with scope precedence
+- **Multi-Source Configuration** - Discovers and merges 12+ configuration sources with scope precedence
+- **Marketplace Plugin Discovery** - Automatically finds ALL plugins with MCP servers (v1.5.0) **(NEW)**
 - **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist access control
 - **Smart Migration** - Automatically migrate global servers to project-level control
 - **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
@@ -511,7 +512,9 @@ These control **which** servers are active:
 
 **Critical Limitation:** These arrays **only work** for servers defined in `.mcp.json` files. Servers defined directly in `~/.claude.json` must use quick-disable (SPACE) or migration (ALT-M) for control.
 
-### Seven Configuration Sources
+### Configuration Sources (12+)
+
+**v1.5.0**: Enhanced marketplace plugin discovery now finds ALL plugins with `.mcp.json` files, not just those marked as `category: "mcpServers"`.
 
 The tool discovers and merges all available configuration files:
 
@@ -528,15 +531,38 @@ The tool discovers and merges all available configuration files:
 6. `~/.claude.json` - Main user configuration (definitions and project overrides)
 7. `~/.mcp.json` - User MCP server definitions
 
+**MARKETPLACE PLUGINS** (user scope, v1.5.0):
+8. `~/.claude/plugins/marketplaces/{MARKETPLACE}/.claude-plugin/marketplace.json` - Root-level mcpServers
+9. `~/.claude/plugins/marketplaces/{MARKETPLACE}/{PLUGIN}/.mcp.json` - Plugin-specific MCP servers
+
+The tool now discovers marketplace plugins using TWO methods:
+- **Root-level**: Checks for `mcpServers` object directly in marketplace.json
+- **Source-guided**: Follows each plugin's `.source` field to find `.mcp.json` files (regardless of category)
+
+This means plugins like `developer-toolkit`, `gtm-suite`, `ai-toolkit` with MCP servers are now automatically discovered, even if not categorized as `category: "mcpServers"`.
+
 ### Server Types
 
-The tool categorizes servers into three types:
+The tool categorizes servers into four types:
 
 #### MCPJSON Servers (Fully Controllable)
 - **Source**: Defined in `.mcp.json` files
 - **Control**: Can be toggled via enable/disable arrays
 - **UI Indicator**: `●` (green) when enabled, `○` (red) when disabled
 - **Label**: Shows scope and type, e.g., `● fetch  │  mcpjson  │  project`
+
+#### Plugin Servers (Marketplace, v1.5.0) **(NEW)**
+- **Source**: Discovered from Claude Code Marketplace installations
+- **Discovery Methods**:
+  - Root-level `mcpServers` in marketplace.json
+  - Plugin `.mcp.json` files via `.source` field (finds ALL plugins with MCP servers)
+- **Control**: Toggle via `enabledPlugins` object in settings files
+- **UI Indicator**: `●` (green) when enabled, `○` (red) when disabled, with plugin badge
+- **Label**: Shows as `● developer-toolkit@marketplace  │  plugin  │  user`
+- **Example Paths**:
+  - `~/.claude/plugins/marketplaces/wookstar/developer-toolkit/.mcp.json`
+  - `~/.claude/plugins/marketplaces/wookstar/gtm-suite/.mcp.json`
+- **Note**: Discovers plugins regardless of category (development, analytics, ai, etc.)
 
 #### Direct-Global Servers (Quick-Disable or Migration)
 - **Source**: Defined in `~/.claude.json` root `.mcpServers`
