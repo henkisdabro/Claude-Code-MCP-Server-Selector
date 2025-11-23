@@ -4,6 +4,36 @@
 # Production-grade TUI for managing Claude Code MCP servers
 # Cross-platform (Linux/macOS) - Never modifies global config
 
+# ============================================================================
+# BASH VERSION CHECK (requires Bash 4.0+ for associative arrays)
+# ============================================================================
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+    echo "Error: This script requires Bash 4.0 or higher (found: $BASH_VERSION)" >&2
+    echo "" >&2
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "macOS ships with Bash 3.2 by default. You have several options:" >&2
+        echo "" >&2
+        echo "Option 1: Install modern Bash via Homebrew (recommended)" >&2
+        echo "  brew install bash" >&2
+        echo "  # Then run: /opt/homebrew/bin/bash $(command -v "$0")" >&2
+        echo "" >&2
+        echo "Option 2: Install via MacPorts" >&2
+        echo "  sudo port install bash" >&2
+        echo "  # Then run: /opt/local/bin/bash $(command -v "$0")" >&2
+        echo "" >&2
+        echo "Option 3: Add modern Bash to your PATH (permanent fix)" >&2
+        echo "  Add to ~/.zshrc or ~/.bash_profile:" >&2
+        echo "    export PATH=\"/opt/homebrew/bin:\$PATH\"  # for Homebrew" >&2
+        echo "    # OR" >&2
+        echo "    export PATH=\"/opt/local/bin:\$PATH\"     # for MacPorts" >&2
+        echo "" >&2
+        echo "Quick test: Run 'bash --version' to check your default bash version." >&2
+    else
+        echo "Please install Bash 4.0+ via your package manager." >&2
+    fi
+    exit 1
+fi
+
 set -euo pipefail
 
 # ============================================================================
