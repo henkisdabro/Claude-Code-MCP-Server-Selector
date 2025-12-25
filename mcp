@@ -44,11 +44,12 @@ readonly SCRIPT_NAME="$(basename "$0")"
 readonly VERSION="2.0.0"  # Bug workarounds, audit mode, debug commands
 
 # Command-line mode flags (set by argument parsing)
-CMD_MODE=""           # "" = TUI mode, "audit" | "validate" | "debug" | "fix" | "restore" | "help"
+CMD_MODE=""           # "" = TUI mode, "audit" | "validate" | "debug" | "fix" | "restore" | "help" | "export" | "sync" | "context"
 CMD_ARG=""            # Argument for commands that need one (e.g., server name for --debug-precedence)
 STRICT_DISABLE=false  # Convert ORANGE servers to RED before launch
 AUDIT_JSON=false      # Output audit results as JSON
 FIX_APPLY=false       # Apply fixes without confirmation
+QUIET_MODE=false      # Suppress non-essential output (for hook usage)
 
 # TUI filter state (persists during fzf session)
 FILTER_TYPE="all"     # all | mcpjson | direct | plugin | enterprise | blocked | orange
@@ -217,6 +218,45 @@ stop_progress() {
     tput cnorm 2>/dev/null || true  # Show cursor
 }
 
+# Check if running inside a Claude session and warn user
+check_session_context() {
+    # Check for various indicators of a Claude session
+    local in_session=false
+
+    # Check for CLAUDE_SESSION_ID environment variable
+    if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
+        in_session=true
+    fi
+
+    # Check for CLAUDE_CONVERSATION_ID
+    if [[ -n "${CLAUDE_CONVERSATION_ID:-}" ]]; then
+        in_session=true
+    fi
+
+    # Check if parent process is Claude
+    if [[ -n "${CLAUDE_CODE:-}" ]]; then
+        in_session=true
+    fi
+
+    # Check if invoked from within a Claude tool call
+    if [[ -n "${MCP_TOOL_CALL:-}" ]]; then
+        in_session=true
+    fi
+
+    if [[ "$in_session" == true ]]; then
+        echo ""
+        echo -e "${COLOR_YELLOW}╭────────────────────────────────────────────────────────────╮${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}│${COLOR_RESET} ${COLOR_YELLOW}${MARK_WARNING} Running inside Claude session${COLOR_RESET}                          ${COLOR_YELLOW}│${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}│${COLOR_RESET}   Changes will take effect on ${COLOR_WHITE}next session restart${COLOR_RESET}        ${COLOR_YELLOW}│${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}│${COLOR_RESET}                                                            ${COLOR_YELLOW}│${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}│${COLOR_RESET}   Use ${COLOR_CYAN}/mcp${COLOR_RESET} or ${COLOR_CYAN}@mention${COLOR_RESET} for in-session toggles              ${COLOR_YELLOW}│${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}│${COLOR_RESET}   (Note: in-session toggles are NOT persisted)             ${COLOR_YELLOW}│${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}╰────────────────────────────────────────────────────────────╯${COLOR_RESET}"
+        echo ""
+        sleep 1  # Brief pause to ensure user sees the warning
+    fi
+}
+
 # Get safe terminal width for lines
 # Returns: width (defaults to 60 for narrow terminals)
 get_term_width() {
@@ -329,9 +369,19 @@ REPAIR COMMANDS:
                             Restore a hard-disabled plugin
     mcp --rollback          Restore configuration from a backup
 
+INTEGRATION COMMANDS:
+    mcp --export-disabled   Export disabled servers (for hook automation)
+    mcp --export-disabled --json
+                            Export as JSON format
+    mcp --export-disabled --quiet
+                            Export without headers (machine-readable)
+    mcp --sync-check        Compare config vs runtime state
+    mcp --context-report    Show context token usage per server
+
 OPTIONS:
     --strict-disable        Convert ORANGE (runtime-disabled) servers to RED
                             before launching Claude (workaround for bug #13311)
+    --quiet, -q             Suppress non-essential output
     --version               Show version information
     --help                  Show this help message
 
@@ -361,6 +411,9 @@ EXAMPLES:
     mcp --strict-disable                # Ensure disabled servers stay disabled
     mcp --restore-plugin mcp-fetch@marketplace  # Re-enable hidden plugin
     mcp --rollback                      # Restore from a previous backup
+    mcp --export-disabled --quiet       # Get disabled servers for hooks
+    mcp --sync-check                    # Check for bug #13311 issues
+    mcp --context-report                # See context token usage
 
 For more information, see: https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector
 EOF
@@ -413,6 +466,22 @@ parse_args() {
                 ;;
             --rollback)
                 CMD_MODE="rollback"
+                shift
+                ;;
+            --export-disabled)
+                CMD_MODE="export"
+                shift
+                ;;
+            --sync-check)
+                CMD_MODE="sync"
+                shift
+                ;;
+            --context-report)
+                CMD_MODE="context"
+                shift
+                ;;
+            --quiet|-q)
+                QUIET_MODE=true
                 shift
                 ;;
             --strict-disable)
@@ -1198,6 +1267,298 @@ run_rollback() {
         echo -e "${COLOR_RED}${MARK_ERROR} Warning: Restored file may have invalid JSON${COLOR_RESET}"
     fi
 
+    echo ""
+}
+
+# ============================================================================
+# EXPORT-DISABLED COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Export list of disabled servers (for hook automation)
+run_export_disabled() {
+    # Need to discover and load servers first
+    discover_settings_file
+    load_servers
+
+    local disabled_servers=()
+    local orange_servers=()
+
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+        local state=$(echo "$line" | cut -d: -f1)
+        local server=$(echo "$line" | cut -d: -f2)
+        local runtime=$(echo "$line" | cut -d: -f7)
+
+        if [[ "$state" == "off" ]]; then
+            disabled_servers+=("$server")
+        elif [[ "$state" == "on" && "$runtime" == "stopped" ]]; then
+            orange_servers+=("$server")
+        fi
+    done < "$STATE_FILE"
+
+    if [[ "$AUDIT_JSON" == true ]]; then
+        # JSON output
+        local json_disabled=$(printf '%s\n' "${disabled_servers[@]}" | jq -R . | jq -s .)
+        local json_orange=$(printf '%s\n' "${orange_servers[@]}" | jq -R . | jq -s .)
+        jq -n --argjson disabled "$json_disabled" --argjson orange "$json_orange" \
+            '{disabled: $disabled, orange: $orange}'
+    else
+        # Simple comma-separated output
+        if [[ "$QUIET_MODE" != true ]]; then
+            echo "# Disabled (RED):"
+        fi
+        if [[ ${#disabled_servers[@]} -gt 0 ]]; then
+            IFS=','; echo "${disabled_servers[*]}"; unset IFS
+        fi
+
+        if [[ "$QUIET_MODE" != true ]]; then
+            echo "# Runtime-disabled (ORANGE):"
+        fi
+        if [[ ${#orange_servers[@]} -gt 0 ]]; then
+            IFS=','; echo "${orange_servers[*]}"; unset IFS
+        fi
+    fi
+}
+
+# ============================================================================
+# SYNC-CHECK COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Compare config state vs runtime state
+run_sync_check() {
+    # Need to discover and load servers first
+    discover_settings_file
+    load_servers
+
+    echo ""
+    echo -e "${COLOR_WHITE}╔════════════════════════════════════════════════════════════╗${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}║${COLOR_RESET}              ${COLOR_CYAN}Config vs Runtime Sync Check${COLOR_RESET}                 ${COLOR_WHITE}║${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}╚════════════════════════════════════════════════════════════╝${COLOR_RESET}"
+    echo ""
+
+    # Check if Claude is available
+    local claude_bin
+    claude_bin=$(command -v claude 2>/dev/null)
+    if [[ -z "$claude_bin" ]]; then
+        echo -e "${COLOR_YELLOW}${MARK_WARNING} Claude CLI not found - cannot check runtime state${COLOR_RESET}"
+        echo ""
+        return 1
+    fi
+
+    # Get runtime state from claude mcp list
+    local runtime_output
+    runtime_output=$("$claude_bin" mcp list 2>/dev/null)
+    local runtime_exit=$?
+
+    if [[ $runtime_exit -ne 0 ]]; then
+        echo -e "${COLOR_YELLOW}${MARK_WARNING} Could not get runtime state (claude mcp list failed)${COLOR_RESET}"
+        echo ""
+        return 1
+    fi
+
+    # Parse runtime output for connected/disconnected servers
+    declare -A runtime_state
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z0-9_-]+):[[:space:]]*(connected|disconnected|error) ]]; then
+            local srv="${BASH_REMATCH[1]}"
+            local status="${BASH_REMATCH[2]}"
+            if [[ "$status" == "connected" ]]; then
+                runtime_state["$srv"]="running"
+            else
+                runtime_state["$srv"]="stopped"
+            fi
+        fi
+    done <<< "$runtime_output"
+
+    # Compare with config state
+    printf "%-25s %-12s %-12s %s\n" "Server" "Config" "Runtime" "Status"
+    printf "%-25s %-12s %-12s %s\n" "─────────────────────────" "────────────" "────────────" "──────────────"
+
+    local sync_issues=0
+
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+        local state=$(echo "$line" | cut -d: -f1)
+        local server=$(echo "$line" | cut -d: -f2)
+        local runtime=$(echo "$line" | cut -d: -f7)
+
+        # Config state
+        local config_state="enabled"
+        [[ "$state" == "off" ]] && config_state="disabled"
+        [[ "$runtime" == "stopped" ]] && config_state="orange"
+
+        # Runtime state (from claude mcp list)
+        local actual_runtime="${runtime_state[$server]:-unknown}"
+
+        # Determine sync status
+        local sync_status="${COLOR_GREEN}✓ in sync${COLOR_RESET}"
+
+        if [[ "$config_state" == "enabled" && "$actual_runtime" == "stopped" ]]; then
+            sync_status="${COLOR_YELLOW}⚡ config:on, runtime:off${COLOR_RESET}"
+            ((sync_issues++))
+        elif [[ "$config_state" == "disabled" && "$actual_runtime" == "running" ]]; then
+            sync_status="${COLOR_RED}⚡ BUG #13311${COLOR_RESET}"
+            ((sync_issues++))
+        elif [[ "$config_state" == "orange" && "$actual_runtime" == "running" ]]; then
+            sync_status="${COLOR_RED}⚡ BUG #13311${COLOR_RESET}"
+            ((sync_issues++))
+        elif [[ "$actual_runtime" == "unknown" ]]; then
+            sync_status="${COLOR_GREY}? not in runtime${COLOR_RESET}"
+        fi
+
+        printf "%-25s %-12s %-12s %b\n" "$server" "$config_state" "$actual_runtime" "$sync_status"
+    done < "$STATE_FILE"
+
+    echo ""
+    if [[ $sync_issues -gt 0 ]]; then
+        echo -e "${COLOR_YELLOW}${MARK_WARNING} Found $sync_issues sync issues${COLOR_RESET}"
+        echo ""
+        echo -e "  ${COLOR_CYAN}Bug #13311${COLOR_RESET}: disabledMcpServers not enforced at session start"
+        echo -e "  ${COLOR_CYAN}Workaround${COLOR_RESET}: Run 'mcp --strict-disable' before launching Claude"
+        echo ""
+    else
+        echo -e "${COLOR_GREEN}${MARK_SUCCESS} All servers in sync${COLOR_RESET}"
+        echo ""
+    fi
+
+    return 0
+}
+
+# ============================================================================
+# CONTEXT-REPORT COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Show context token usage per server
+run_context_report() {
+    # Need to discover and load servers first
+    discover_settings_file
+    load_servers
+
+    echo ""
+    echo -e "${COLOR_WHITE}╔════════════════════════════════════════════════════════════╗${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}║${COLOR_RESET}              ${COLOR_CYAN}MCP Server Context Usage Report${COLOR_RESET}              ${COLOR_WHITE}║${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}╚════════════════════════════════════════════════════════════╝${COLOR_RESET}"
+    echo ""
+
+    # Check if Claude is available for tool count
+    local claude_bin
+    claude_bin=$(command -v claude 2>/dev/null)
+    local can_get_tools=false
+    [[ -n "$claude_bin" ]] && can_get_tools=true
+
+    local enabled_total=0
+    local enabled_tokens=0
+    local disabled_total=0
+    local disabled_tokens=0
+    local orange_total=0
+    local orange_tokens=0
+
+    echo -e "${COLOR_GREEN}ENABLED SERVERS:${COLOR_RESET}"
+    printf "  %-30s %-12s %s\n" "Server" "Tools" "Est. Tokens"
+    printf "  %-30s %-12s %s\n" "──────────────────────────────" "────────────" "───────────"
+
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+        local state=$(echo "$line" | cut -d: -f1)
+        local server=$(echo "$line" | cut -d: -f2)
+        local runtime=$(echo "$line" | cut -d: -f7)
+
+        # Try to get tool count
+        local tools="?"
+        local tokens="?"
+        if [[ "$can_get_tools" == true ]]; then
+            local server_info
+            server_info=$("$claude_bin" mcp get "$server" 2>/dev/null)
+            if [[ -n "$server_info" ]]; then
+                tools=$(echo "$server_info" | jq '.tools | length' 2>/dev/null || echo "?")
+                if [[ "$tools" != "?" ]]; then
+                    tokens=$((tools * 50))  # ~50 tokens per tool definition
+                fi
+            fi
+        fi
+
+        if [[ "$state" == "on" && "$runtime" != "stopped" ]]; then
+            printf "  %-30s %-12s ~%s\n" "$server" "$tools tools" "${tokens} tokens"
+            [[ "$tools" != "?" ]] && enabled_total=$((enabled_total + tools))
+            [[ "$tokens" != "?" ]] && enabled_tokens=$((enabled_tokens + tokens))
+        fi
+    done < "$STATE_FILE"
+
+    echo -e "  ──────────────────────────────────────────────────────────"
+    echo -e "  ${COLOR_WHITE}Total enabled:${COLOR_RESET} $enabled_total tools (~$enabled_tokens tokens)"
+    echo ""
+
+    # Check for disabled servers (wasted context due to bug #11370)
+    local has_disabled=false
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        local state=$(echo "$line" | cut -d: -f1)
+        local runtime=$(echo "$line" | cut -d: -f7)
+        if [[ "$state" == "off" ]] || [[ "$runtime" == "stopped" ]]; then
+            has_disabled=true
+            break
+        fi
+    done < "$STATE_FILE"
+
+    if [[ "$has_disabled" == true ]]; then
+        echo -e "${COLOR_YELLOW}DISABLED BUT LOADING (Bug #11370):${COLOR_RESET}"
+        printf "  %-30s %-12s %s\n" "Server" "Tools" "Wasted Tokens"
+        printf "  %-30s %-12s %s\n" "──────────────────────────────" "────────────" "─────────────"
+
+        while IFS= read -r line; do
+            [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+            local state=$(echo "$line" | cut -d: -f1)
+            local server=$(echo "$line" | cut -d: -f2)
+            local runtime=$(echo "$line" | cut -d: -f7)
+
+            local tools="?"
+            local tokens="?"
+            if [[ "$can_get_tools" == true ]]; then
+                local server_info
+                server_info=$("$claude_bin" mcp get "$server" 2>/dev/null)
+                if [[ -n "$server_info" ]]; then
+                    tools=$(echo "$server_info" | jq '.tools | length' 2>/dev/null || echo "?")
+                    if [[ "$tools" != "?" ]]; then
+                        tokens=$((tools * 50))
+                    fi
+                fi
+            fi
+
+            if [[ "$state" == "off" ]]; then
+                printf "  %-30s %-12s ${COLOR_RED}~%s${COLOR_RESET}\n" "$server (RED)" "$tools tools" "${tokens} wasted"
+                [[ "$tools" != "?" ]] && disabled_total=$((disabled_total + tools))
+                [[ "$tokens" != "?" ]] && disabled_tokens=$((disabled_tokens + tokens))
+            elif [[ "$runtime" == "stopped" ]]; then
+                printf "  %-30s %-12s ${COLOR_YELLOW}~%s${COLOR_RESET}\n" "$server (ORANGE)" "$tools tools" "${tokens} wasted"
+                [[ "$tools" != "?" ]] && orange_total=$((orange_total + tools))
+                [[ "$tokens" != "?" ]] && orange_tokens=$((orange_tokens + tokens))
+            fi
+        done < "$STATE_FILE"
+
+        local total_wasted=$((disabled_tokens + orange_tokens))
+        echo -e "  ──────────────────────────────────────────────────────────"
+        echo -e "  ${COLOR_RED}Total wasted:${COLOR_RESET} $((disabled_total + orange_total)) tools (~$total_wasted tokens)"
+        echo ""
+        echo -e "${COLOR_YELLOW}${MARK_WARNING} Bug #11370: Disabled servers still consume context tokens${COLOR_RESET}"
+        echo -e "   Each disabled server wastes ~400-650 tokens of your context window."
+        echo ""
+        echo -e "${COLOR_CYAN}Recommendations:${COLOR_RESET}"
+        echo -e "   • Use ${COLOR_WHITE}mcp --strict-disable${COLOR_RESET} to fully remove disabled servers"
+        echo -e "   • Or remove servers you don't need: ${COLOR_WHITE}claude mcp remove <name>${COLOR_RESET}"
+        echo ""
+    fi
+
+    # Summary
+    echo -e "${COLOR_WHITE}SUMMARY:${COLOR_RESET}"
+    echo -e "   Active context usage: ~$enabled_tokens tokens"
+    if [[ $((disabled_tokens + orange_tokens)) -gt 0 ]]; then
+        echo -e "   Wasted context (bugs): ~$((disabled_tokens + orange_tokens)) tokens"
+        echo -e "   Potential savings:     ~$((disabled_tokens + orange_tokens)) tokens"
+    fi
     echo ""
 }
 
@@ -4232,7 +4593,7 @@ main() {
 
     # Commands that only need jq (not fzf)
     case "$CMD_MODE" in
-        validate|audit|debug|fix|restore|rollback)
+        validate|audit|debug|fix|restore|rollback|export|sync|context)
             if ! command -v jq &> /dev/null; then
                 msg_error "Missing required dependency: jq"
                 msg_info "Install with: sudo apt install jq"
@@ -4270,6 +4631,18 @@ main() {
                     run_rollback
                     exit $?
                     ;;
+                export)
+                    run_export_disabled
+                    exit $?
+                    ;;
+                sync)
+                    run_sync_check
+                    exit $?
+                    ;;
+                context)
+                    run_context_report
+                    exit $?
+                    ;;
             esac
             ;;
     esac
@@ -4291,6 +4664,9 @@ main() {
     load_servers
     stop_progress "$progress_pid"
     msg_success "Configuration loaded"
+
+    # Check if running inside a Claude session
+    check_session_context
 
     # Apply strict-disable if requested
     if [[ "$STRICT_DISABLE" == "true" ]]; then
