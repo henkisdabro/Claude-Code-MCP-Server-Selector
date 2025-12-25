@@ -50,6 +50,9 @@ STRICT_DISABLE=false  # Convert ORANGE servers to RED before launch
 AUDIT_JSON=false      # Output audit results as JSON
 FIX_APPLY=false       # Apply fixes without confirmation
 
+# TUI filter state (persists during fzf session)
+FILTER_TYPE="all"     # all | mcpjson | direct | plugin | enterprise | blocked | orange
+
 # Performance: FAST_MODE skips runtime detection (saves 5-8 seconds)
 # - Default: true (instant startup)
 # - Disable: FAST_MODE=false ./mcp (for debugging)
@@ -324,6 +327,7 @@ REPAIR COMMANDS:
                             Apply repairs without confirmation
     mcp --restore-plugin PLUGIN@MARKETPLACE
                             Restore a hard-disabled plugin
+    mcp --rollback          Restore configuration from a backup
 
 OPTIONS:
     --strict-disable        Convert ORANGE (runtime-disabled) servers to RED
@@ -356,6 +360,7 @@ EXAMPLES:
     mcp --fix-config                    # Fix detected issues interactively
     mcp --strict-disable                # Ensure disabled servers stay disabled
     mcp --restore-plugin mcp-fetch@marketplace  # Re-enable hidden plugin
+    mcp --rollback                      # Restore from a previous backup
 
 For more information, see: https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector
 EOF
@@ -404,6 +409,10 @@ parse_args() {
                     exit 1
                 fi
                 CMD_ARG="$1"
+                shift
+                ;;
+            --rollback)
+                CMD_MODE="rollback"
                 shift
                 ;;
             --strict-disable)
@@ -1054,6 +1063,141 @@ run_restore_plugin() {
 
     echo ""
     echo -e "${COLOR_GREEN}Plugin restored. It should now appear in Claude.${COLOR_RESET}"
+    echo ""
+}
+
+# ============================================================================
+# ROLLBACK COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Show available backups and allow restoring one
+run_rollback() {
+    echo ""
+    echo -e "${COLOR_WHITE}╔════════════════════════════════════════════════════════════╗${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}║${COLOR_RESET}              ${COLOR_CYAN}Configuration Rollback${COLOR_RESET}                       ${COLOR_WHITE}║${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}╚════════════════════════════════════════════════════════════╝${COLOR_RESET}"
+    echo ""
+
+    # Check if backup directory exists
+    if [[ ! -d "$BACKUP_DIR" ]]; then
+        echo -e "${COLOR_YELLOW}${MARK_WARNING} No backups found${COLOR_RESET}"
+        echo ""
+        echo -e "  Backups are created automatically when you modify configuration."
+        echo -e "  Backup location: $BACKUP_DIR"
+        echo ""
+        return 0
+    fi
+
+    # List available backups
+    local backups=()
+    while IFS= read -r -d '' file; do
+        backups+=("$file")
+    done < <(find "$BACKUP_DIR" -type f -name "*.backup.*" -print0 2>/dev/null | sort -z -r)
+
+    if [[ ${#backups[@]} -eq 0 ]]; then
+        echo -e "${COLOR_YELLOW}${MARK_WARNING} No backups found in $BACKUP_DIR${COLOR_RESET}"
+        echo ""
+        return 0
+    fi
+
+    echo -e "Available backups (most recent first):"
+    echo ""
+
+    local idx=1
+    for backup in "${backups[@]}"; do
+        local filename=$(basename "$backup")
+        local timestamp=$(echo "$filename" | grep -oE '[0-9]{10}$' || echo "unknown")
+        local date_str=""
+
+        if [[ "$timestamp" != "unknown" ]]; then
+            date_str=$(date -d "@$timestamp" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r "$timestamp" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "unknown")
+        fi
+
+        # Get original file name
+        local original=$(echo "$filename" | sed 's/\.backup\.[0-9]*$//')
+
+        echo -e "  ${COLOR_CYAN}[$idx]${COLOR_RESET} $original"
+        echo -e "      ${COLOR_GREY}Backed up: $date_str${COLOR_RESET}"
+        echo -e "      ${COLOR_GREY}File: $backup${COLOR_RESET}"
+        echo ""
+
+        ((idx++))
+
+        # Limit to 10 most recent
+        [[ $idx -gt 10 ]] && break
+    done
+
+    echo -n "Enter number to restore (or 'q' to quit): "
+    read -r choice
+
+    if [[ "$choice" == "q" || "$choice" == "Q" || -z "$choice" ]]; then
+        echo -e "${COLOR_GREY}Cancelled${COLOR_RESET}"
+        return 0
+    fi
+
+    # Validate choice
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#backups[@]} ]]; then
+        echo -e "${COLOR_RED}${MARK_ERROR} Invalid selection${COLOR_RESET}"
+        return 1
+    fi
+
+    local selected_backup="${backups[$((choice - 1))]}"
+    local original_file=$(basename "$selected_backup" | sed 's/\.backup\.[0-9]*$//')
+
+    # Determine target path
+    local target_path=""
+    case "$original_file" in
+        claude.json)
+            target_path="$HOME/.claude.json"
+            ;;
+        settings.json)
+            target_path="./.claude/settings.json"
+            ;;
+        settings.local.json)
+            target_path="./.claude/settings.local.json"
+            ;;
+        *)
+            echo -e "${COLOR_YELLOW}${MARK_WARNING} Unknown backup type: $original_file${COLOR_RESET}"
+            echo -n "Enter target path to restore to: "
+            read -r target_path
+            ;;
+    esac
+
+    if [[ -z "$target_path" ]]; then
+        echo -e "${COLOR_RED}${MARK_ERROR} No target path specified${COLOR_RESET}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "Restore ${COLOR_CYAN}$selected_backup${COLOR_RESET}"
+    echo -e "     to ${COLOR_CYAN}$target_path${COLOR_RESET}"
+    echo ""
+    echo -n "Confirm? [y/N] "
+    read -r confirm
+
+    if [[ ! "$confirm" =~ ^[Yy] ]]; then
+        echo -e "${COLOR_GREY}Cancelled${COLOR_RESET}"
+        return 0
+    fi
+
+    # Create backup of current file before restore
+    if [[ -f "$target_path" ]]; then
+        local current_backup="$BACKUP_DIR/$(basename "$target_path").pre-rollback.$(date +%s)"
+        cp "$target_path" "$current_backup"
+        echo -e "${COLOR_CYAN}${MARK_INFO} Current file backed up to: $current_backup${COLOR_RESET}"
+    fi
+
+    # Restore
+    mkdir -p "$(dirname "$target_path")"
+    cp "$selected_backup" "$target_path"
+
+    # Validate restored file
+    if jq empty "$target_path" 2>/dev/null; then
+        echo -e "${COLOR_GREEN}${MARK_SUCCESS} Restored successfully${COLOR_RESET}"
+    else
+        echo -e "${COLOR_RED}${MARK_ERROR} Warning: Restored file may have invalid JSON${COLOR_RESET}"
+    fi
+
     echo ""
 }
 
@@ -2015,8 +2159,9 @@ load_servers() {
         fi
     done <<< "$raw_data"
 
-    # Write to state file
-    > "$STATE_FILE"  # Truncate
+    # Write to state file with version header
+    # Format v2.0: state:server:scope:file:source_type:flags:runtime
+    echo "# schema_version:2.0" > "$STATE_FILE"
 
     # PERFORMANCE OPTIMIZATION: Skip runtime detection by default (saves 5-8 seconds)
     # Runtime detection requires calling 'claude mcp list' which is SLOW
@@ -2605,6 +2750,146 @@ remove_from_disabled_mcp_servers() {
     mv "$temp_json" "$claude_json"
     msg_success "Removed from runtime override list"
     sleep 0.3
+    return 0
+}
+
+# ============================================================================
+# FILTER FUNCTIONS
+# ============================================================================
+
+# Set filter to show only MCPJSON servers
+set_filter_mcpjson() {
+    FILTER_TYPE="mcpjson"
+    echo "Filter: MCPJSON servers" >&2
+}
+
+# Set filter to show only Direct servers
+set_filter_direct() {
+    FILTER_TYPE="direct"
+    echo "Filter: Direct servers" >&2
+}
+
+# Set filter to show only Plugin servers
+set_filter_plugin() {
+    FILTER_TYPE="plugin"
+    echo "Filter: Plugin servers" >&2
+}
+
+# Set filter to show only Enterprise servers
+set_filter_enterprise() {
+    FILTER_TYPE="enterprise"
+    echo "Filter: Enterprise servers" >&2
+}
+
+# Set filter to show only Blocked/Restricted servers
+set_filter_blocked() {
+    FILTER_TYPE="blocked"
+    echo "Filter: Blocked/Restricted servers" >&2
+}
+
+# Set filter to show only ORANGE (runtime-disabled) servers
+set_filter_orange() {
+    FILTER_TYPE="orange"
+    echo "Filter: Runtime-disabled (ORANGE) servers" >&2
+}
+
+# Reset filter to show all servers
+set_filter_all() {
+    FILTER_TYPE="all"
+    echo "Filter: All servers" >&2
+}
+
+# ============================================================================
+# HARD DISABLE PLUGIN
+# ============================================================================
+
+# Hard disable a plugin (sets explicit false in enabledPlugins)
+# This makes the plugin completely hidden from Claude UI
+# Args: $1 - raw input from fzf (contains server name)
+hard_disable_plugin() {
+    local raw_input="$1"
+    local server
+    server=$(extract_server_name "$raw_input")
+
+    # Get server metadata from state file
+    local source_type=""
+    while IFS=: read -r state srv scope file stype flags runtime; do
+        if [[ "$srv" == "$server" ]]; then
+            source_type="$stype"
+            break
+        fi
+    done < "$STATE_FILE"
+
+    # Only works for plugins
+    if [[ "$source_type" != "plugin" ]]; then
+        echo -e "${COLOR_YELLOW}${MARK_WARNING} ALT-H only works for plugin servers${COLOR_RESET}" >&2
+        echo -e "  Server '$server' is type: $source_type" >&2
+        sleep 1.5
+        return 1
+    fi
+
+    # Show warning
+    clear
+    echo ""
+    echo -e "${COLOR_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}"
+    echo -e "${COLOR_RED}⚠️  HARD DISABLE WARNING${COLOR_RESET}"
+    echo -e "${COLOR_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}"
+    echo ""
+    echo -e "You are about to HARD DISABLE plugin: ${COLOR_CYAN}$server${COLOR_RESET}"
+    echo ""
+    echo -e "${COLOR_YELLOW}This will:${COLOR_RESET}"
+    echo -e "  • Set enabledPlugins['$server'] = false"
+    echo -e "  • Make the plugin ${COLOR_RED}INVISIBLE${COLOR_RESET} in Claude's /mcp list"
+    echo -e "  • Prevent re-enabling via Claude UI"
+    echo ""
+    echo -e "${COLOR_YELLOW}To recover, you will need to:${COLOR_RESET}"
+    echo -e "  • Run: ./mcp --restore-plugin '$server'"
+    echo -e "  • Or manually edit the config file"
+    echo ""
+    echo -n "Are you sure? [y/N] "
+    read -r response
+
+    if [[ ! "$response" =~ ^[Yy] ]]; then
+        echo -e "${COLOR_GREY}Cancelled${COLOR_RESET}"
+        sleep 0.5
+        return 0
+    fi
+
+    # Apply hard disable
+    local settings_file="./.claude/settings.local.json"
+    mkdir -p "./.claude"
+
+    if [[ ! -f "$settings_file" ]]; then
+        echo '{}' > "$settings_file"
+    fi
+
+    # Create backup
+    mkdir -p "$BACKUP_DIR"
+    cp "$settings_file" "$BACKUP_DIR/$(basename "$settings_file").backup.$(date +%s)"
+
+    # Add explicit false to enabledPlugins
+    local temp_file
+    temp_file=$(mktemp)
+    jq --arg plugin "$server" '
+        .enabledPlugins //= {} |
+        .enabledPlugins[$plugin] = false
+    ' "$settings_file" > "$temp_file"
+    mv "$temp_file" "$settings_file"
+
+    # Update state file to reflect disabled state
+    temp_file=$(mktemp)
+    while IFS=: read -r state srv scope file stype flags runtime; do
+        if [[ "$srv" == "$server" ]]; then
+            echo "off:$srv:$scope:$file:$stype:$flags:stopped"
+        else
+            echo "$state:$srv:$scope:$file:$stype:$flags:$runtime"
+        fi
+    done < "$STATE_FILE" > "$temp_file"
+    mv "$temp_file" "$STATE_FILE"
+
+    echo -e "${COLOR_GREEN}${MARK_SUCCESS} Plugin hard-disabled${COLOR_RESET}"
+    echo -e "  To restore: ./mcp --restore-plugin '$server'"
+    sleep 1.5
     return 0
 }
 
@@ -3282,6 +3567,31 @@ generate_fzf_list() {
         [[ -z "$flags" ]] && flags=""  # Backward compatibility
         [[ -z "$runtime" ]] && runtime="unknown"  # Backward compatibility
 
+        # Apply filter
+        case "$FILTER_TYPE" in
+            mcpjson)
+                [[ "$source_type" != "mcpjson" ]] && continue
+                ;;
+            direct)
+                [[ "$source_type" != "direct-global" && "$source_type" != "direct-local" ]] && continue
+                ;;
+            plugin)
+                [[ "$source_type" != "plugin" ]] && continue
+                ;;
+            enterprise)
+                [[ "$flags" != *"e"* ]] && continue
+                ;;
+            blocked)
+                [[ "$flags" != *"b"* && "$flags" != *"r"* ]] && continue
+                ;;
+            orange)
+                [[ "$state" != "on" || "$runtime" != "stopped" ]] && continue
+                ;;
+            all|*)
+                # No filter, show all
+                ;;
+        esac
+
         # Determine state symbol and color (three-tier state system)
         local symbol=""
         local symbol_color=""
@@ -3770,11 +4080,24 @@ launch_fzf_tui() {
     local table_header
     table_header=$(generate_table_header)
 
+    # Build filter indicator
+    local filter_indicator=""
+    case "$FILTER_TYPE" in
+        mcpjson) filter_indicator=" [Filter: MCPJSON]" ;;
+        direct) filter_indicator=" [Filter: Direct]" ;;
+        plugin) filter_indicator=" [Filter: Plugin]" ;;
+        enterprise) filter_indicator=" [Filter: Enterprise]" ;;
+        blocked) filter_indicator=" [Filter: Blocked]" ;;
+        orange) filter_indicator=" [Filter: ORANGE]" ;;
+        *) filter_indicator="" ;;
+    esac
+
     # Compact shortcuts and table header for fzf header (split into multiple lines)
     local header=""
     header="
-SPACE:Toggle │ ALT-M:Migrate │ CTRL-A:Add │ CTRL-X:Delete
+SPACE:Toggle │ ALT-M:Migrate │ ALT-H:Hard-Disable │ CTRL-A:Add │ CTRL-X:Delete
 ALT-E:Enable All │ ALT-D:Disable All │ ENTER:Save │ ESC:Cancel
+Filters: ALT-1:MCPJSON │ ALT-2:Direct │ ALT-3:Plugin │ ALT-4:Enterprise │ ALT-0:All${filter_indicator}
 
 $table_header"
 
@@ -3796,10 +4119,18 @@ $table_header"
         --preview-window="right:45%:wrap" \
         --bind="space:execute(toggle_server {})+reload(generate_fzf_list)+refresh-preview" \
         --bind="alt-m:execute(migrate_direct_server_flow {})+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-h:execute(hard_disable_plugin {})+reload(generate_fzf_list)+refresh-preview" \
         --bind="alt-e:execute-silent(enable_all_servers)+reload(generate_fzf_list)+refresh-preview" \
         --bind="alt-d:execute-silent(disable_all_servers)+reload(generate_fzf_list)+refresh-preview" \
         --bind="ctrl-a:execute(add_server_flow)+reload(generate_fzf_list)+refresh-preview" \
         --bind="ctrl-x:execute(remove_server_flow {})+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-1:execute-silent(set_filter_mcpjson)+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-2:execute-silent(set_filter_direct)+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-3:execute-silent(set_filter_plugin)+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-4:execute-silent(set_filter_enterprise)+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-0:execute-silent(set_filter_all)+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-b:execute-silent(set_filter_blocked)+reload(generate_fzf_list)+refresh-preview" \
+        --bind="alt-o:execute-silent(set_filter_orange)+reload(generate_fzf_list)+refresh-preview" \
         --bind="enter:accept" \
         --bind="esc:abort" \
         --color="fg:#d0d0d0,bg:#121212,hl:#5fff87" \
@@ -3901,7 +4232,7 @@ main() {
 
     # Commands that only need jq (not fzf)
     case "$CMD_MODE" in
-        validate|audit|debug|fix|restore)
+        validate|audit|debug|fix|restore|rollback)
             if ! command -v jq &> /dev/null; then
                 msg_error "Missing required dependency: jq"
                 msg_info "Install with: sudo apt install jq"
@@ -3909,7 +4240,7 @@ main() {
             fi
 
             # Set up state file for commands that need discovery
-            if [[ "$CMD_MODE" != "validate" ]]; then
+            if [[ "$CMD_MODE" != "validate" && "$CMD_MODE" != "rollback" ]]; then
                 STATE_FILE=$(mktemp)
                 trap 'rm -f "$STATE_FILE"' EXIT
             fi
@@ -3933,6 +4264,10 @@ main() {
                     ;;
                 restore)
                     run_restore_plugin "$CMD_ARG"
+                    exit $?
+                    ;;
+                rollback)
+                    run_rollback
                     exit $?
                     ;;
             esac
