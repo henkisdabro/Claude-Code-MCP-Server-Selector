@@ -1,0 +1,4 @@
+{
+  "disabledMcpServers": ["fetch", "time"],
+  "comment": "This has disabledMcpServers in a settings file, which is wrong"
+}

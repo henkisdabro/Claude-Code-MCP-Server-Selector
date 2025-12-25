@@ -41,7 +41,14 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly VERSION="1.5.0"  # Enhanced marketplace plugin discovery (all categories)
+readonly VERSION="2.0.0"  # Bug workarounds, audit mode, debug commands
+
+# Command-line mode flags (set by argument parsing)
+CMD_MODE=""           # "" = TUI mode, "audit" | "validate" | "debug" | "fix" | "restore" | "help"
+CMD_ARG=""            # Argument for commands that need one (e.g., server name for --debug-precedence)
+STRICT_DISABLE=false  # Convert ORANGE servers to RED before launch
+AUDIT_JSON=false      # Output audit results as JSON
+FIX_APPLY=false       # Apply fixes without confirmation
 
 # Performance: FAST_MODE skips runtime detection (saves 5-8 seconds)
 # - Default: true (instant startup)
@@ -286,6 +293,824 @@ abbreviate_path() {
     result="${result#/}"
 
     echo "$result"
+}
+
+# ============================================================================
+# HELP AND COMMAND-LINE INTERFACE
+# ============================================================================
+
+# Show help message
+show_help() {
+    cat << 'EOF'
+MCP Server Selector v2.0.0 - Claude Code MCP Server Management TUI
+
+USAGE:
+    mcp [OPTIONS] [-- CLAUDE_ARGS...]
+
+INTERACTIVE MODE (default):
+    mcp                     Launch TUI to manage MCP servers
+    mcp -- --resume         Launch TUI, then pass --resume to Claude
+
+DIAGNOSTIC COMMANDS:
+    mcp --audit             Check configuration health and report issues
+    mcp --audit --json      Output audit results as JSON
+    mcp --validate          Quick validation of all config files
+    mcp --debug-precedence SERVER
+                            Show how a server's state is resolved
+
+REPAIR COMMANDS:
+    mcp --fix-config        Interactive repair of configuration issues
+    mcp --fix-config --apply
+                            Apply repairs without confirmation
+    mcp --restore-plugin PLUGIN@MARKETPLACE
+                            Restore a hard-disabled plugin
+
+OPTIONS:
+    --strict-disable        Convert ORANGE (runtime-disabled) servers to RED
+                            before launching Claude (workaround for bug #13311)
+    --version               Show version information
+    --help                  Show this help message
+
+TUI KEYBINDINGS:
+    SPACE       Toggle server (RED → GREEN → ORANGE → RED)
+    ALT-M       Migrate Direct server to project
+    ALT-H       Hard disable plugin (hidden from UI)
+    ALT-E       Enable all servers
+    ALT-D       Disable all servers
+    ALT-1       Filter: MCPJSON servers only
+    ALT-2       Filter: Direct servers only
+    ALT-3       Filter: Plugin servers only
+    ALT-4       Filter: Enterprise servers only
+    ALT-0       Show all servers (reset filter)
+    ALT-B       Filter: Blocked servers only
+    ALT-O       Filter: ORANGE (runtime-disabled) only
+    CTRL-A      Add new server
+    CTRL-X      Remove server
+    CTRL-R      Refresh runtime status
+    ENTER       Save changes and launch Claude
+    ESC         Cancel without saving
+
+EXAMPLES:
+    mcp --audit                         # Check for config issues
+    mcp --debug-precedence fetch        # Why is 'fetch' enabled/disabled?
+    mcp --fix-config                    # Fix detected issues interactively
+    mcp --strict-disable                # Ensure disabled servers stay disabled
+    mcp --restore-plugin mcp-fetch@marketplace  # Re-enable hidden plugin
+
+For more information, see: https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector
+EOF
+}
+
+# Parse command-line arguments
+# Sets global CMD_MODE, CMD_ARG, STRICT_DISABLE, AUDIT_JSON, FIX_APPLY
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                CMD_MODE="help"
+                return 0
+                ;;
+            --version|-v)
+                echo "MCP Server Selector v${VERSION}"
+                exit 0
+                ;;
+            --audit)
+                CMD_MODE="audit"
+                shift
+                ;;
+            --validate)
+                CMD_MODE="validate"
+                shift
+                ;;
+            --debug-precedence)
+                CMD_MODE="debug"
+                shift
+                if [[ $# -eq 0 ]] || [[ "$1" == -* ]]; then
+                    msg_error "--debug-precedence requires a server name"
+                    exit 1
+                fi
+                CMD_ARG="$1"
+                shift
+                ;;
+            --fix-config)
+                CMD_MODE="fix"
+                shift
+                ;;
+            --restore-plugin)
+                CMD_MODE="restore"
+                shift
+                if [[ $# -eq 0 ]] || [[ "$1" == -* ]]; then
+                    msg_error "--restore-plugin requires a plugin name (e.g., mcp-fetch@marketplace)"
+                    exit 1
+                fi
+                CMD_ARG="$1"
+                shift
+                ;;
+            --strict-disable)
+                STRICT_DISABLE=true
+                shift
+                ;;
+            --json)
+                AUDIT_JSON=true
+                shift
+                ;;
+            --apply)
+                FIX_APPLY=true
+                shift
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                msg_error "Unknown option: $1"
+                msg_info "Run 'mcp --help' for usage information"
+                exit 1
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    # Remaining args are passed to Claude
+    CLAUDE_ARGS=("$@")
+}
+
+# ============================================================================
+# AUDIT COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Audit: Check if control arrays are in correct locations
+# Returns: Array of issues found
+audit_control_array_placement() {
+    local issues=()
+
+    # Check for disabledMcpServers in settings files (WRONG location)
+    local settings_files=(
+        "./.claude/settings.local.json"
+        "./.claude/settings.json"
+        "$HOME/.claude/settings.json"
+        "$HOME/.claude/settings.local.json"
+    )
+
+    for file in "${settings_files[@]}"; do
+        if [[ -f "$file" ]] && jq -e '.disabledMcpServers' "$file" &>/dev/null; then
+            issues+=("ERROR:disabledMcpServers in wrong location:$file:Should be in ~/.claude.json only")
+        fi
+    done
+
+    # Check for enabledMcpjsonServers/disabledMcpjsonServers in ~/.claude.json (WRONG location)
+    if [[ -f "$HOME/.claude.json" ]]; then
+        if jq -e '.enabledMcpjsonServers' "$HOME/.claude.json" &>/dev/null; then
+            issues+=("ERROR:enabledMcpjsonServers in wrong location:$HOME/.claude.json:Should be in .claude/settings*.json files")
+        fi
+        if jq -e '.disabledMcpjsonServers' "$HOME/.claude.json" &>/dev/null; then
+            issues+=("ERROR:disabledMcpjsonServers in wrong location:$HOME/.claude.json:Should be in .claude/settings*.json files")
+        fi
+    fi
+
+    printf '%s\n' "${issues[@]}"
+}
+
+# Audit: Check for duplicate server definitions
+audit_definition_conflicts() {
+    local issues=()
+    local raw_data
+    raw_data=$(discover_and_parse_all_sources 2>/dev/null || true)
+
+    # Build map of server -> locations
+    declare -A server_locations
+    while IFS=: read -r type server scope file _; do
+        [[ "$type" != "def" ]] && continue
+        [[ -z "$server" ]] && continue
+
+        if [[ -n "${server_locations[$server]:-}" ]]; then
+            server_locations[$server]+=" AND $scope:$file"
+        else
+            server_locations[$server]="$scope:$file"
+        fi
+    done <<< "$raw_data"
+
+    # Find duplicates
+    for server in "${!server_locations[@]}"; do
+        if [[ "${server_locations[$server]}" == *" AND "* ]]; then
+            issues+=("WARNING:Server '$server' defined in multiple locations:${server_locations[$server]}:Higher priority wins")
+        fi
+    done
+
+    printf '%s\n' "${issues[@]}"
+}
+
+# Audit: Check for orphaned references
+audit_orphaned_references() {
+    local issues=()
+    local raw_data
+    raw_data=$(discover_and_parse_all_sources 2>/dev/null || true)
+
+    # Collect all defined servers
+    declare -A defined_servers
+    while IFS=: read -r type server _ _ _; do
+        [[ "$type" == "def" ]] && defined_servers[$server]=1
+    done <<< "$raw_data"
+
+    # Check enabled/disabled references
+    while IFS=: read -r type server scope file; do
+        [[ "$type" != "enable" && "$type" != "disable" ]] && continue
+        [[ -z "$server" ]] && continue
+
+        if [[ -z "${defined_servers[$server]:-}" ]]; then
+            issues+=("INFO:Orphaned reference '$server' in $type list:$file:Server not defined anywhere")
+        fi
+    done <<< "$raw_data"
+
+    printf '%s\n' "${issues[@]}"
+}
+
+# Audit: Check for plugin control issues
+audit_plugin_issues() {
+    local issues=()
+    local settings_files=(
+        "./.claude/settings.local.json"
+        "./.claude/settings.json"
+        "$HOME/.claude/settings.json"
+        "$HOME/.claude/settings.local.json"
+    )
+
+    for file in "${settings_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            # Find plugins explicitly set to false
+            local false_plugins
+            false_plugins=$(jq -r '.enabledPlugins // {} | to_entries[] | select(.value == false) | .key' "$file" 2>/dev/null || true)
+
+            while IFS= read -r plugin; do
+                [[ -z "$plugin" ]] && continue
+                issues+=("WARNING:Plugin '$plugin' set to explicit false:$file:Plugin will be hidden from Claude UI")
+            done <<< "$false_plugins"
+        fi
+    done
+
+    printf '%s\n' "${issues[@]}"
+}
+
+# Audit: Check JSON syntax in all config files
+audit_json_syntax() {
+    local issues=()
+    local config_files=(
+        "$HOME/.claude.json"
+        "$HOME/.mcp.json"
+        "$HOME/.claude/settings.json"
+        "$HOME/.claude/settings.local.json"
+        "./.mcp.json"
+        "./.claude/settings.json"
+        "./.claude/settings.local.json"
+    )
+
+    for file in "${config_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            if ! jq empty "$file" 2>/dev/null; then
+                issues+=("ERROR:Invalid JSON syntax:$file:File cannot be parsed")
+            fi
+        fi
+    done
+
+    printf '%s\n' "${issues[@]}"
+}
+
+# Run full audit and display results
+run_audit() {
+    local all_issues=()
+    local error_count=0
+    local warning_count=0
+    local info_count=0
+
+    # Collect all issues
+    while IFS= read -r issue; do
+        [[ -z "$issue" ]] && continue
+        all_issues+=("$issue")
+        case "$issue" in
+            ERROR:*) ((error_count++)) ;;
+            WARNING:*) ((warning_count++)) ;;
+            INFO:*) ((info_count++)) ;;
+        esac
+    done < <(audit_json_syntax; audit_control_array_placement; audit_definition_conflicts; audit_orphaned_references; audit_plugin_issues)
+
+    if [[ "$AUDIT_JSON" == "true" ]]; then
+        # JSON output
+        local json_issues="["
+        local first=true
+        for issue in "${all_issues[@]}"; do
+            IFS=: read -r severity type location details <<< "$issue"
+            [[ "$first" != "true" ]] && json_issues+=","
+            first=false
+            json_issues+="{\"severity\":\"$severity\",\"type\":\"$type\",\"location\":\"$location\",\"details\":\"$details\"}"
+        done
+        json_issues+="]"
+
+        jq -n --argjson issues "$json_issues" \
+              --argjson errors "$error_count" \
+              --argjson warnings "$warning_count" \
+              --argjson info "$info_count" \
+            '{summary: {errors: $errors, warnings: $warnings, info: $info}, issues: $issues}'
+    else
+        # Human-readable output
+        echo ""
+        echo -e "${COLOR_WHITE}╔════════════════════════════════════════════════════════════╗${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}║${COLOR_RESET}              ${COLOR_CYAN}MCP Configuration Audit Report${COLOR_RESET}              ${COLOR_WHITE}║${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}╚════════════════════════════════════════════════════════════╝${COLOR_RESET}"
+        echo ""
+
+        if [[ ${#all_issues[@]} -eq 0 ]]; then
+            echo -e "${COLOR_GREEN}${MARK_SUCCESS} Configuration Health: ALL CHECKS PASSED${COLOR_RESET}"
+            echo ""
+            echo -e "  No issues detected in your MCP configuration."
+            echo ""
+        else
+            if [[ $error_count -gt 0 ]]; then
+                echo -e "${COLOR_RED}${MARK_ERROR} Configuration Health: ERRORS FOUND${COLOR_RESET}"
+            else
+                echo -e "${COLOR_YELLOW}${MARK_WARNING} Configuration Health: WARNINGS FOUND${COLOR_RESET}"
+            fi
+            echo ""
+
+            # Group by type
+            local current_type=""
+            for issue in "${all_issues[@]}"; do
+                IFS=: read -r severity type location details <<< "$issue"
+
+                if [[ "$type" != "$current_type" ]]; then
+                    current_type="$type"
+                    echo -e "  ${COLOR_WHITE}═══ $type ═══${COLOR_RESET}"
+                fi
+
+                case "$severity" in
+                    ERROR)   echo -e "  ${COLOR_RED}${MARK_ERROR}${COLOR_RESET} $location" ;;
+                    WARNING) echo -e "  ${COLOR_YELLOW}${MARK_WARNING}${COLOR_RESET} $location" ;;
+                    INFO)    echo -e "  ${COLOR_CYAN}${MARK_INFO}${COLOR_RESET} $location" ;;
+                esac
+                echo -e "     ${COLOR_GREY}$details${COLOR_RESET}"
+                echo ""
+            done
+        fi
+
+        echo -e "${COLOR_WHITE}═══ Summary ═══${COLOR_RESET}"
+        echo -e "  Errors:   $error_count"
+        echo -e "  Warnings: $warning_count"
+        echo -e "  Info:     $info_count"
+        echo ""
+
+        if [[ $error_count -gt 0 || $warning_count -gt 0 ]]; then
+            echo -e "${COLOR_CYAN}Run './mcp --fix-config' to repair issues${COLOR_RESET}"
+            echo ""
+        fi
+    fi
+
+    # Exit with error if errors found
+    [[ $error_count -gt 0 ]] && return 1
+    return 0
+}
+
+# ============================================================================
+# VALIDATE COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Quick validation - just check JSON syntax and basic structure
+run_validate() {
+    local has_errors=false
+
+    echo -e "${COLOR_CYAN}Validating MCP configuration files...${COLOR_RESET}"
+    echo ""
+
+    local config_files=(
+        "$HOME/.claude.json:User config"
+        "$HOME/.mcp.json:User MCP"
+        "$HOME/.claude/settings.json:User settings"
+        "$HOME/.claude/settings.local.json:User local settings"
+        "./.mcp.json:Project MCP"
+        "./.claude/settings.json:Project settings"
+        "./.claude/settings.local.json:Project local settings"
+    )
+
+    for entry in "${config_files[@]}"; do
+        IFS=: read -r file label <<< "$entry"
+
+        if [[ -f "$file" ]]; then
+            if jq empty "$file" 2>/dev/null; then
+                echo -e "  ${COLOR_GREEN}${MARK_SUCCESS}${COLOR_RESET} $label ($file)"
+            else
+                echo -e "  ${COLOR_RED}${MARK_ERROR}${COLOR_RESET} $label ($file) - Invalid JSON"
+                has_errors=true
+            fi
+        else
+            echo -e "  ${COLOR_GREY}○${COLOR_RESET} $label ($file) - Not found"
+        fi
+    done
+
+    echo ""
+
+    if [[ "$has_errors" == "true" ]]; then
+        echo -e "${COLOR_RED}Validation FAILED - Fix JSON syntax errors${COLOR_RESET}"
+        return 1
+    else
+        echo -e "${COLOR_GREEN}Validation PASSED${COLOR_RESET}"
+        return 0
+    fi
+}
+
+# ============================================================================
+# DEBUG-PRECEDENCE COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Show detailed precedence resolution for a specific server
+run_debug_precedence() {
+    local target_server="$1"
+    local raw_data
+    raw_data=$(discover_and_parse_all_sources 2>/dev/null || true)
+
+    echo ""
+    echo -e "${COLOR_WHITE}╔════════════════════════════════════════════════════════════╗${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}║${COLOR_RESET}           ${COLOR_CYAN}Precedence Resolution: $target_server${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}╚════════════════════════════════════════════════════════════╝${COLOR_RESET}"
+    echo ""
+
+    # Collect definitions
+    local def_found=false
+    echo -e "${COLOR_WHITE}═══ Definition Resolution ═══${COLOR_RESET}"
+
+    declare -A definitions
+    while IFS=: read -r type server scope file source_type; do
+        [[ "$type" != "def" ]] && continue
+        [[ "$server" != "$target_server" ]] && continue
+
+        def_found=true
+        local priority
+        priority=$(get_scope_priority "$scope")
+        definitions["$priority:$scope"]="$file ($source_type)"
+    done <<< "$raw_data"
+
+    if [[ "$def_found" == "false" ]]; then
+        echo -e "  ${COLOR_RED}${MARK_ERROR} Server '$target_server' not found in any configuration${COLOR_RESET}"
+        echo ""
+        return 1
+    fi
+
+    # Show definitions in priority order (highest first)
+    local winning_def=""
+    local winning_priority=0
+    for key in $(echo "${!definitions[@]}" | tr ' ' '\n' | sort -t: -k1 -rn); do
+        IFS=: read -r priority scope <<< "$key"
+        local file="${definitions[$key]}"
+
+        if [[ $priority -gt $winning_priority ]]; then
+            winning_priority=$priority
+            winning_def="$file"
+            echo -e "  ${COLOR_GREEN}Priority $priority ($scope):${COLOR_RESET} $file ${COLOR_GREEN}← ACTIVE${COLOR_RESET}"
+        else
+            echo -e "  ${COLOR_GREY}Priority $priority ($scope): $file (shadowed)${COLOR_RESET}"
+        fi
+    done
+    echo ""
+
+    # Collect state
+    echo -e "${COLOR_WHITE}═══ State Resolution ═══${COLOR_RESET}"
+
+    declare -A states
+    local state_found=false
+    while IFS=: read -r type server scope file; do
+        [[ "$type" != "enable" && "$type" != "disable" ]] && continue
+        [[ "$server" != "$target_server" ]] && continue
+
+        state_found=true
+        local priority
+        priority=$(get_scope_priority "$scope")
+        states["$priority:$scope:$type"]="$file"
+    done <<< "$raw_data"
+
+    if [[ "$state_found" == "false" ]]; then
+        echo -e "  ${COLOR_GREY}No explicit enable/disable found${COLOR_RESET}"
+        echo -e "  ${COLOR_GREEN}Default: ENABLED${COLOR_RESET}"
+    else
+        local winning_state=""
+        local winning_state_priority=0
+        for key in $(echo "${!states[@]}" | tr ' ' '\n' | sort -t: -k1 -rn); do
+            IFS=: read -r priority scope type <<< "$key"
+            local file="${states[$key]}"
+
+            if [[ $priority -gt $winning_state_priority ]]; then
+                winning_state_priority=$priority
+                winning_state="$type"
+                local color="${COLOR_GREEN}"
+                [[ "$type" == "disable" ]] && color="${COLOR_RED}"
+                echo -e "  ${color}Priority $priority ($scope): $type in $file ← ACTIVE${COLOR_RESET}"
+            else
+                echo -e "  ${COLOR_GREY}Priority $priority ($scope): $type in $file (overridden)${COLOR_RESET}"
+            fi
+        done
+    fi
+    echo ""
+
+    # Check runtime override (disabledMcpServers in ~/.claude.json)
+    echo -e "${COLOR_WHITE}═══ Runtime Override Check ═══${COLOR_RESET}"
+
+    local cwd
+    cwd=$(pwd)
+    local runtime_disabled=false
+
+    if [[ -f "$HOME/.claude.json" ]]; then
+        local disabled_list
+        disabled_list=$(jq -r --arg cwd "$cwd" '.projects[$cwd].disabledMcpServers // [] | .[]' "$HOME/.claude.json" 2>/dev/null || true)
+
+        while IFS= read -r disabled_server; do
+            if [[ "$disabled_server" == "$target_server" ]]; then
+                runtime_disabled=true
+                break
+            fi
+        done <<< "$disabled_list"
+    fi
+
+    if [[ "$runtime_disabled" == "true" ]]; then
+        echo -e "  ${COLOR_ORANGE}● RUNTIME DISABLED${COLOR_RESET}"
+        echo -e "  ${COLOR_GREY}Listed in ~/.claude.json .projects[$cwd].disabledMcpServers${COLOR_RESET}"
+        echo -e "  ${COLOR_GREY}Server is configured but won't start (ORANGE state)${COLOR_RESET}"
+    else
+        echo -e "  ${COLOR_GREY}No runtime override found${COLOR_RESET}"
+    fi
+    echo ""
+
+    # Final result
+    echo -e "${COLOR_WHITE}═══ Final State ═══${COLOR_RESET}"
+    local final_state="ENABLED"
+    local final_color="${COLOR_GREEN}"
+
+    if [[ "${winning_state:-enable}" == "disable" ]]; then
+        final_state="DISABLED"
+        final_color="${COLOR_RED}"
+    elif [[ "$runtime_disabled" == "true" ]]; then
+        final_state="RUNTIME DISABLED (ORANGE)"
+        final_color="${COLOR_ORANGE}"
+    fi
+
+    echo -e "  ${final_color}● $final_state${COLOR_RESET}"
+    echo ""
+}
+
+# ============================================================================
+# FIX-CONFIG COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Fix configuration issues
+run_fix_config() {
+    local issues=()
+    local fixed_count=0
+
+    echo ""
+    echo -e "${COLOR_WHITE}╔════════════════════════════════════════════════════════════╗${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}║${COLOR_RESET}              ${COLOR_CYAN}MCP Configuration Repair${COLOR_RESET}                    ${COLOR_WHITE}║${COLOR_RESET}"
+    echo -e "${COLOR_WHITE}╚════════════════════════════════════════════════════════════╝${COLOR_RESET}"
+    echo ""
+
+    # Collect fixable issues
+    while IFS= read -r issue; do
+        [[ -z "$issue" ]] && continue
+        [[ "$issue" != ERROR:* && "$issue" != WARNING:* ]] && continue
+        issues+=("$issue")
+    done < <(audit_control_array_placement; audit_plugin_issues)
+
+    if [[ ${#issues[@]} -eq 0 ]]; then
+        echo -e "${COLOR_GREEN}${MARK_SUCCESS} No fixable issues found${COLOR_RESET}"
+        echo ""
+        return 0
+    fi
+
+    echo -e "Found ${#issues[@]} fixable issue(s):"
+    echo ""
+
+    for issue in "${issues[@]}"; do
+        IFS=: read -r severity type location details <<< "$issue"
+
+        echo -e "  ${COLOR_YELLOW}${MARK_WARNING}${COLOR_RESET} $type"
+        echo -e "     Location: $location"
+        echo -e "     Issue: $details"
+        echo ""
+
+        local do_fix=false
+        if [[ "$FIX_APPLY" == "true" ]]; then
+            do_fix=true
+        else
+            echo -n "  Fix this issue? [y/N] "
+            read -r response
+            [[ "$response" =~ ^[Yy] ]] && do_fix=true
+        fi
+
+        if [[ "$do_fix" == "true" ]]; then
+            case "$type" in
+                "disabledMcpServers in wrong location")
+                    # Move disabledMcpServers from settings file to ~/.claude.json
+                    if fix_move_disabled_mcp_servers "$location"; then
+                        echo -e "  ${COLOR_GREEN}${MARK_SUCCESS} Fixed${COLOR_RESET}"
+                        ((fixed_count++))
+                    else
+                        echo -e "  ${COLOR_RED}${MARK_ERROR} Failed to fix${COLOR_RESET}"
+                    fi
+                    ;;
+                "Plugin '*' set to explicit false")
+                    # Remove explicit false from enabledPlugins
+                    local plugin_name
+                    plugin_name=$(echo "$type" | sed "s/Plugin '\([^']*\)'.*/\1/")
+                    if fix_remove_plugin_false "$location" "$plugin_name"; then
+                        echo -e "  ${COLOR_GREEN}${MARK_SUCCESS} Fixed${COLOR_RESET}"
+                        ((fixed_count++))
+                    else
+                        echo -e "  ${COLOR_RED}${MARK_ERROR} Failed to fix${COLOR_RESET}"
+                    fi
+                    ;;
+                *)
+                    echo -e "  ${COLOR_GREY}Auto-fix not available for this issue${COLOR_RESET}"
+                    ;;
+            esac
+        else
+            echo -e "  ${COLOR_GREY}Skipped${COLOR_RESET}"
+        fi
+        echo ""
+    done
+
+    echo -e "${COLOR_WHITE}═══ Summary ═══${COLOR_RESET}"
+    echo -e "  Fixed: $fixed_count / ${#issues[@]} issues"
+    echo ""
+}
+
+# Fix helper: Move disabledMcpServers from settings file to ~/.claude.json
+fix_move_disabled_mcp_servers() {
+    local source_file="$1"
+    local cwd
+    cwd=$(pwd)
+
+    # Extract the array from source
+    local servers
+    servers=$(jq -r '.disabledMcpServers // [] | .[]' "$source_file" 2>/dev/null || true)
+
+    [[ -z "$servers" ]] && return 0  # Nothing to move
+
+    # Create backup
+    mkdir -p "$BACKUP_DIR"
+    cp "$source_file" "$BACKUP_DIR/$(basename "$source_file").backup.$(date +%s)"
+
+    # Remove from source file
+    local temp_file
+    temp_file=$(mktemp)
+    jq 'del(.disabledMcpServers)' "$source_file" > "$temp_file"
+    mv "$temp_file" "$source_file"
+
+    # Add to ~/.claude.json .projects[cwd].disabledMcpServers
+    if [[ -f "$HOME/.claude.json" ]]; then
+        cp "$HOME/.claude.json" "$BACKUP_DIR/claude.json.backup.$(date +%s)"
+
+        temp_file=$(mktemp)
+        local servers_json
+        servers_json=$(echo "$servers" | jq -R -s 'split("\n") | map(select(. != ""))')
+
+        jq --arg cwd "$cwd" --argjson servers "$servers_json" '
+            .projects //= {} |
+            .projects[$cwd] //= {} |
+            .projects[$cwd].disabledMcpServers = ((.projects[$cwd].disabledMcpServers // []) + $servers | unique)
+        ' "$HOME/.claude.json" > "$temp_file"
+
+        mv "$temp_file" "$HOME/.claude.json"
+    fi
+
+    return 0
+}
+
+# Fix helper: Remove explicit false from enabledPlugins
+fix_remove_plugin_false() {
+    local file="$1"
+    local plugin="$2"
+
+    # Create backup
+    mkdir -p "$BACKUP_DIR"
+    cp "$file" "$BACKUP_DIR/$(basename "$file").backup.$(date +%s)"
+
+    # Remove the plugin from enabledPlugins
+    local temp_file
+    temp_file=$(mktemp)
+    jq --arg plugin "$plugin" 'del(.enabledPlugins[$plugin])' "$file" > "$temp_file"
+    mv "$temp_file" "$file"
+
+    return 0
+}
+
+# ============================================================================
+# RESTORE-PLUGIN COMMAND IMPLEMENTATION
+# ============================================================================
+
+# Restore a hard-disabled plugin
+run_restore_plugin() {
+    local plugin_name="$1"
+
+    echo ""
+    echo -e "${COLOR_CYAN}Restoring plugin: $plugin_name${COLOR_RESET}"
+    echo ""
+
+    local found=false
+    local settings_files=(
+        "./.claude/settings.local.json"
+        "./.claude/settings.json"
+        "$HOME/.claude/settings.json"
+        "$HOME/.claude/settings.local.json"
+    )
+
+    for file in "${settings_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            local is_false
+            is_false=$(jq -r --arg plugin "$plugin_name" '.enabledPlugins[$plugin] // "null"' "$file" 2>/dev/null || echo "null")
+
+            if [[ "$is_false" == "false" ]]; then
+                found=true
+                echo -e "  Found in: $file"
+
+                # Create backup
+                mkdir -p "$BACKUP_DIR"
+                cp "$file" "$BACKUP_DIR/$(basename "$file").backup.$(date +%s)"
+
+                # Remove the explicit false
+                local temp_file
+                temp_file=$(mktemp)
+                jq --arg plugin "$plugin_name" 'del(.enabledPlugins[$plugin])' "$file" > "$temp_file"
+                mv "$temp_file" "$file"
+
+                echo -e "  ${COLOR_GREEN}${MARK_SUCCESS} Removed explicit false - plugin will now be visible${COLOR_RESET}"
+            fi
+        fi
+    done
+
+    if [[ "$found" == "false" ]]; then
+        echo -e "  ${COLOR_YELLOW}${MARK_WARNING} Plugin '$plugin_name' not found in any enabledPlugins with false value${COLOR_RESET}"
+        echo ""
+        echo -e "  Possible reasons:"
+        echo -e "  - Plugin name may be incorrect (format: name@marketplace)"
+        echo -e "  - Plugin may already be enabled or never hard-disabled"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${COLOR_GREEN}Plugin restored. It should now appear in Claude.${COLOR_RESET}"
+    echo ""
+}
+
+# ============================================================================
+# STRICT-DISABLE IMPLEMENTATION
+# ============================================================================
+
+# Convert all ORANGE servers to RED (strict disable)
+apply_strict_disable() {
+    local cwd
+    cwd=$(pwd)
+    local changed=false
+
+    if [[ ! -f "$HOME/.claude.json" ]]; then
+        return 0
+    fi
+
+    # Get list of runtime-disabled servers
+    local disabled_list
+    disabled_list=$(jq -r --arg cwd "$cwd" '.projects[$cwd].disabledMcpServers // [] | .[]' "$HOME/.claude.json" 2>/dev/null || true)
+
+    [[ -z "$disabled_list" ]] && return 0
+
+    msg_info "Applying strict-disable: Converting ORANGE servers to RED..."
+
+    # For each runtime-disabled server, add to disabledMcpjsonServers
+    local settings_file="./.claude/settings.local.json"
+    mkdir -p "./.claude"
+
+    if [[ ! -f "$settings_file" ]]; then
+        echo '{}' > "$settings_file"
+    fi
+
+    while IFS= read -r server; do
+        [[ -z "$server" ]] && continue
+
+        # Add to disabledMcpjsonServers
+        local temp_file
+        temp_file=$(mktemp)
+        jq --arg server "$server" '
+            .disabledMcpjsonServers = ((.disabledMcpjsonServers // []) + [$server] | unique)
+        ' "$settings_file" > "$temp_file"
+        mv "$temp_file" "$settings_file"
+
+        msg_info "  Disabled: $server"
+        changed=true
+    done <<< "$disabled_list"
+
+    # Clear the runtime override list
+    if [[ "$changed" == "true" ]]; then
+        local temp_file
+        temp_file=$(mktemp)
+        jq --arg cwd "$cwd" '.projects[$cwd].disabledMcpServers = []' "$HOME/.claude.json" > "$temp_file"
+        mv "$temp_file" "$HOME/.claude.json"
+
+        msg_success "ORANGE servers converted to RED (permanent disable)"
+    fi
 }
 
 # ============================================================================
@@ -3063,11 +3888,63 @@ $table_header"
 # ============================================================================
 
 main() {
+    # Parse command-line arguments first
+    parse_args "$@"
+
+    # Handle commands that don't need any dependencies or state file
+    case "$CMD_MODE" in
+        help)
+            show_help
+            exit 0
+            ;;
+    esac
+
+    # Commands that only need jq (not fzf)
+    case "$CMD_MODE" in
+        validate|audit|debug|fix|restore)
+            if ! command -v jq &> /dev/null; then
+                msg_error "Missing required dependency: jq"
+                msg_info "Install with: sudo apt install jq"
+                exit 1
+            fi
+
+            # Set up state file for commands that need discovery
+            if [[ "$CMD_MODE" != "validate" ]]; then
+                STATE_FILE=$(mktemp)
+                trap 'rm -f "$STATE_FILE"' EXIT
+            fi
+
+            case "$CMD_MODE" in
+                validate)
+                    run_validate
+                    exit $?
+                    ;;
+                audit)
+                    run_audit
+                    exit $?
+                    ;;
+                debug)
+                    run_debug_precedence "$CMD_ARG"
+                    exit $?
+                    ;;
+                fix)
+                    run_fix_config
+                    exit $?
+                    ;;
+                restore)
+                    run_restore_plugin "$CMD_ARG"
+                    exit $?
+                    ;;
+            esac
+            ;;
+    esac
+
+    # TUI mode - full initialization
     # Set up cleanup trap for state file
     STATE_FILE=$(mktemp)
     trap 'rm -f "$STATE_FILE"' EXIT
 
-    # Check dependencies
+    # Check all dependencies (jq + fzf)
     check_dependencies
 
     # Discover settings file (may trigger new project flow)
@@ -3079,6 +3956,11 @@ main() {
     load_servers
     stop_progress "$progress_pid"
     msg_success "Configuration loaded"
+
+    # Apply strict-disable if requested
+    if [[ "$STRICT_DISABLE" == "true" ]]; then
+        apply_strict_disable
+    fi
 
     # Launch TUI
     if launch_fzf_tui; then
@@ -3102,12 +3984,15 @@ main() {
             exit 1
         fi
 
-        exec "$claude_bin" "$@"
+        exec "$claude_bin" "${CLAUDE_ARGS[@]}"
     else
         # User cancelled
         exit 0
     fi
 }
+
+# Global array for Claude arguments (set by parse_args)
+declare -a CLAUDE_ARGS=()
 
 # ============================================================================
 # ENTRY POINT
