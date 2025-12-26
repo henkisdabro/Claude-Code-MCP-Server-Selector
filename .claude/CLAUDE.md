@@ -710,17 +710,37 @@ When `enabledPlugins["plugin@marketplace"] = false` is set in working locations:
 
 ### Tested Control Arrays (Oct 2025)
 
+**Complete Control Array Reference**:
+
+| Array | Valid Location | Controls |
+|-------|----------------|----------|
+| `enabledMcpjsonServers` | Settings files only | `.mcp.json` servers |
+| `disabledMcpjsonServers` | Settings files only | `.mcp.json` servers |
+| `disabledMcpServers` | `~/.claude.json` ONLY (root or `.projects[cwd]`) | Direct servers and plugins |
+| `enabledPlugins` | Settings files only | Plugin servers |
+| `enableAllProjectMcpServers` | Settings files only | Master switch |
+| `allowedMcpServers` | `managed-settings.json` only | Enterprise allow |
+| `deniedMcpServers` | `managed-settings.json` only | Enterprise deny |
+| `strictKnownMarketplaces` | `managed-settings.json` only | Marketplace lock |
+
 **Working Arrays**:
-- ✅ `enabledMcpjsonServers` / `disabledMcpjsonServers` - Controls .mcp.json servers (in settings files)
-- ✅ `disabledMcpServers` - Controls Direct-Global/Direct-Local servers (ONLY in `~/.claude.json`)
-- ✅ `enabledPlugins` - Controls marketplace plugins (in settings files only)
-- ✅ `enableAllProjectMcpServers` - Master switch for all .mcp.json servers
+- `enabledMcpjsonServers` / `disabledMcpjsonServers` - Controls .mcp.json servers (in settings files)
+- `disabledMcpServers` - Controls Direct-Global/Direct-Local servers (ONLY in `~/.claude.json`)
+- `enabledPlugins` - Controls marketplace plugins (in settings files only)
+- `enableAllProjectMcpServers` - Master switch for all .mcp.json servers
 
 **Critical Location Restrictions**:
-- ❌ `disabledMcpServers` CANNOT be in settings files (`.claude/settings*.json`)
-- ❌ `disabledMcpServers` ONLY works in `~/.claude.json` (root or `.projects[cwd]`)
-- ✅ `disabledMcpjsonServers` ONLY works in settings files
-- ✅ Tool writes `disabledMcpServers` to `.projects[cwd]` section for project-specific control
+- `disabledMcpServers` CANNOT be in settings files (`.claude/settings*.json`)
+- `disabledMcpServers` ONLY works in `~/.claude.json` (root or `.projects[cwd]`)
+- `disabledMcpjsonServers` ONLY works in settings files
+- Tool writes `disabledMcpServers` to `.projects[cwd]` section for project-specific control
+
+**Plugin Server Format in disabledMcpServers**:
+When disabling plugin servers via `disabledMcpServers`, use the format:
+```
+plugin:PLUGIN_NAME:SERVER_NAME
+```
+Example: `plugin:developer-toolkit:chrome-devtools`
 
 **Testing Reference**: See `MCP_CONTROL_TESTING_REPORT.md` for comprehensive test evidence and precedence rules.
 
@@ -891,6 +911,202 @@ on:github:user:~/.mcp.json:mcpjson:                               # Normal
 - Flags field optional (17 locations check `[[ -z "$flags" ]]`)
 - No enterprise files = normal operation
 - Zero breaking changes
+
+### Marketplace Restrictions
+
+**`strictKnownMarketplaces`** (NEW):
+Restricts which marketplace sources users can install plugins from:
+
+```json
+{
+  "strictKnownMarketplaces": [
+    { "source": "github", "repo": "acme-corp/approved-plugins" }
+  ]
+}
+```
+
+**Behaviour**:
+- Empty array `[]` = Lockdown mode (no marketplace additions allowed)
+- Undefined = No restrictions (users can add any marketplace)
+- Only listed sources are permitted for plugin installation
+
+## Native Claude Code CLI Reference
+
+This section documents the native Claude Code CLI commands for MCP server management. These are built-in commands provided by Claude Code itself.
+
+### Session-Only Flags
+
+Control which servers are active for a single Claude session without modifying configuration files:
+
+```bash
+# Enable specific servers for this session only
+claude --mcp-servers="fetch,filesystem"
+
+# Disable specific servers for this session only
+claude --no-mcp-servers="github,postgres"
+```
+
+These flags override configuration files for the current session only.
+
+### MCP Management Commands
+
+```bash
+# List all configured MCP servers with their status
+claude mcp list
+
+# Add a stdio-based MCP server
+claude mcp add <name> -- <command> [args...]
+
+# Add an HTTP or SSE transport server
+claude mcp add <name> -t http <url>
+claude mcp add <name> -t sse <url>
+
+# Add server from JSON definition
+claude mcp add-json <name> '<json>'
+
+# Remove an MCP server
+claude mcp remove <name>
+
+# Reset project approval prompts for MCP servers
+claude mcp reset-project-choices
+```
+
+### Configuration Flags
+
+```bash
+# Load MCP configuration from a specific file
+claude --mcp-config ./custom-mcp.json
+
+# Use ONLY the specified config (ignore other sources)
+claude --strict-mcp-config
+
+# Set scope when adding servers (project or user)
+claude mcp add <name> --scope project -- <command>
+claude mcp add <name> --scope user -- <command>
+```
+
+### In-Session Commands
+
+When inside a Claude session, use the `/mcp` command for interactive server management:
+
+```
+/mcp
+```
+
+This opens an interactive interface for enabling/disabling servers during the current session. Changes made via `/mcp` are session-only and do not persist to configuration files.
+
+## Transport Types
+
+MCP servers support three transport types for communication between Claude Code and the server process.
+
+### Transport Type Reference
+
+| Type | Config Format | Description |
+|------|---------------|-------------|
+| `stdio` | `{ "command": "...", "args": [...], "env": {...} }` | Default. Subprocess communication via stdin/stdout |
+| `http` | `{ "type": "http", "url": "https://...", "headers": {...} }` | HTTP request/response transport |
+| `sse` | `{ "type": "sse", "url": "https://...", "headers": {...} }` | Server-Sent Events for streaming |
+
+### stdio Transport (Default)
+
+The default transport type. Server runs as a subprocess:
+
+```json
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "env": {
+        "TIMEOUT": "30"
+      }
+    }
+  }
+}
+```
+
+### HTTP Transport
+
+For servers accessible via HTTP endpoints:
+
+```json
+{
+  "mcpServers": {
+    "github-api": {
+      "type": "http",
+      "url": "https://api.example.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${API_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### SSE Transport
+
+For servers using Server-Sent Events:
+
+```json
+{
+  "mcpServers": {
+    "streaming-server": {
+      "type": "sse",
+      "url": "https://stream.example.com/mcp/",
+      "headers": {
+        "X-API-Key": "${SSE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+## Environment Variable Expansion
+
+MCP server configurations support environment variable expansion using shell-style syntax.
+
+### Expansion Syntax
+
+```
+${VAR}           - Expand to environment variable value
+${VAR:-default}  - Expand with default if VAR is unset or empty
+```
+
+### Supported Fields
+
+Environment variable expansion works in the following configuration fields:
+- `command` - The server executable
+- `args` - Command arguments array
+- `env` - Environment variables passed to server
+- `url` - HTTP/SSE endpoint URLs
+- `headers` - HTTP headers
+
+### Examples
+
+```json
+{
+  "mcpServers": {
+    "database": {
+      "command": "${HOME}/.local/bin/db-server",
+      "args": ["--port", "${DB_PORT:-5432}"],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}",
+        "LOG_LEVEL": "${LOG_LEVEL:-info}"
+      }
+    },
+    "api-gateway": {
+      "type": "http",
+      "url": "${API_GATEWAY_URL:-https://localhost:8080}/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${API_TOKEN}",
+        "X-Environment": "${NODE_ENV:-development}"
+      }
+    }
+  }
+}
+```
+
+**Note**: If a required environment variable is not set and no default is provided, the server may fail to start. Always provide sensible defaults where possible.
 
 ## New Project Flow
 
