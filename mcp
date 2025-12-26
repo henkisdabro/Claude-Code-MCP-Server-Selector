@@ -717,6 +717,67 @@ audit_plugin_issues() {
     printf '%s\n' "${issues[@]}"
 }
 
+# Audit: Check plugin MCP server discovery issues
+audit_plugin_mcp_discovery() {
+    local issues=()
+    local marketplace_dir="$HOME/.claude/plugins/marketplaces"
+
+    if [[ ! -d "$marketplace_dir" ]]; then
+        # No marketplaces installed, nothing to audit
+        printf '%s\n' "${issues[@]}"
+        return 0
+    fi
+
+    # Find all marketplace.json files
+    while IFS= read -r marketplace_file; do
+        [[ ! -f "$marketplace_file" ]] && continue
+
+        # Validate marketplace.json
+        if ! jq empty "$marketplace_file" 2>/dev/null; then
+            issues+=("ERROR:Invalid marketplace JSON:$marketplace_file:Marketplace configuration cannot be parsed")
+            continue
+        fi
+
+        # Get marketplace base directory
+        local marketplace_base
+        marketplace_base=$(dirname "$marketplace_file")
+        marketplace_base=$(dirname "$marketplace_base")
+        local marketplace_name
+        marketplace_name=$(basename "$marketplace_base")
+
+        # Check each plugin's .mcp.json file
+        while IFS=: read -r plugin_name plugin_source; do
+            [[ -z "$plugin_name" ]] || [[ -z "$plugin_source" ]] && continue
+
+            # Security: Skip plugins with unsafe paths
+            if [[ "$plugin_source" =~ \.\. ]] || [[ "$plugin_source" =~ ^/ ]]; then
+                issues+=("WARNING:Plugin with unsafe path:$plugin_name ($plugin_source):Path traversal detected")
+                continue
+            fi
+
+            local mcp_file="${marketplace_base}/${plugin_source}/.mcp.json"
+
+            # Only audit if .mcp.json exists
+            if [[ -f "$mcp_file" ]]; then
+                # Check JSON validity
+                if ! jq empty "$mcp_file" 2>/dev/null; then
+                    issues+=("ERROR:Invalid plugin .mcp.json:$mcp_file:Plugin MCP configuration cannot be parsed")
+                    continue
+                fi
+
+                # Check for mcpServers object
+                local has_servers
+                has_servers=$(jq -r 'has("mcpServers")' "$mcp_file" 2>/dev/null)
+                if [[ "$has_servers" != "true" ]]; then
+                    issues+=("INFO:.mcp.json missing mcpServers:$mcp_file:File exists but has no mcpServers object")
+                fi
+            fi
+        done < <(jq -r '.plugins[]? | "\(.name):\(.source)"' "$marketplace_file" 2>/dev/null || true)
+    done < <(find "$marketplace_dir" -path "*/.claude-plugin/marketplace.json" -type f 2>/dev/null)
+
+    printf '%s\n' "${issues[@]}"
+}
+
 # Audit: Check JSON syntax in all config files
 audit_json_syntax() {
     local issues=()
@@ -757,7 +818,7 @@ run_audit() {
             WARNING:*) ((warning_count++)) ;;
             INFO:*) ((info_count++)) ;;
         esac
-    done < <(audit_json_syntax; audit_control_array_placement; audit_definition_conflicts; audit_orphaned_references; audit_plugin_issues)
+    done < <(audit_json_syntax; audit_control_array_placement; audit_definition_conflicts; audit_orphaned_references; audit_plugin_issues; audit_plugin_mcp_discovery)
 
     if [[ "$AUDIT_JSON" == "true" ]]; then
         # JSON output
