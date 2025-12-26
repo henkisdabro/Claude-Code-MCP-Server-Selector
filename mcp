@@ -44,12 +44,14 @@ readonly SCRIPT_NAME="$(basename "$0")"
 readonly VERSION="2.0.0"  # Bug workarounds, audit mode, debug commands
 
 # Command-line mode flags (set by argument parsing)
-CMD_MODE=""           # "" = TUI mode, "audit" | "validate" | "debug" | "fix" | "restore" | "help" | "export" | "sync" | "context"
+CMD_MODE=""           # "" = TUI mode, "audit" | "validate" | "debug" | "fix" | "restore" | "help" | "export" | "sync" | "context" | "enable" | "disable"
 CMD_ARG=""            # Argument for commands that need one (e.g., server name for --debug-precedence)
 STRICT_DISABLE=false  # Convert ORANGE servers to RED before launch
 AUDIT_JSON=false      # Output audit results as JSON
 FIX_APPLY=false       # Apply fixes without confirmation
 QUIET_MODE=false      # Suppress non-essential output (for hook usage)
+CMD_ALL=false         # For enable/disable --all flag
+declare -a CMD_SERVERS=()  # Server names for enable/disable commands
 
 # TUI filter state (persists during fzf session)
 FILTER_TYPE="all"     # all | mcpjson | direct | plugin | enterprise | blocked | orange
@@ -378,6 +380,16 @@ INTEGRATION COMMANDS:
     mcp --sync-check        Compare config vs runtime state
     mcp --context-report    Show context token usage per server
 
+SERVER COMMANDS:
+    mcp enable SERVER [SERVER...]
+                            Enable specific servers
+    mcp disable SERVER [SERVER...]
+                            Disable specific servers
+    mcp enable --all        Enable all servers
+    mcp disable --all       Disable all servers
+    mcp enable --json       Output result as JSON
+    mcp disable --json      Output result as JSON
+
 OPTIONS:
     --strict-disable        Convert ORANGE (runtime-disabled) servers to RED
                             before launching Claude (workaround for bug #13311)
@@ -414,6 +426,9 @@ EXAMPLES:
     mcp --export-disabled --quiet       # Get disabled servers for hooks
     mcp --sync-check                    # Check for bug #13311 issues
     mcp --context-report                # See context token usage
+    mcp enable fetch github             # Enable specific servers
+    mcp disable --all                   # Disable all servers
+    mcp enable --json fetch             # Enable and output JSON result
 
 For more information, see: https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector
 EOF
@@ -504,6 +519,23 @@ parse_args() {
                 msg_error "Unknown option: $1"
                 msg_info "Run 'mcp --help' for usage information"
                 exit 1
+                ;;
+            enable|disable)
+                CMD_MODE="$1"
+                shift
+                CMD_ALL=false
+                CMD_SERVERS=()
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --all) CMD_ALL=true; shift ;;
+                        --json) AUDIT_JSON=true; shift ;;
+                        --quiet|-q) QUIET_MODE=true; shift ;;
+                        --) shift; break ;;
+                        -*) msg_error "Unknown option: $1"; exit 1 ;;
+                        *) CMD_SERVERS+=("$1"); shift ;;
+                    esac
+                done
+                return 0
                 ;;
             *)
                 break
@@ -1560,6 +1592,224 @@ run_context_report() {
         echo -e "   Potential savings:     ~$((disabled_tokens + orange_tokens)) tokens"
     fi
     echo ""
+}
+
+# ============================================================================
+# ENABLE/DISABLE SERVER COMMANDS
+# ============================================================================
+
+# Enable servers via CLI
+# Uses CMD_SERVERS array and CMD_ALL flag set by parse_args
+run_enable_servers() {
+    # Need to discover and load servers first
+    discover_settings_file
+    load_servers
+
+    # Validate at least one server specified or --all
+    if [[ ${#CMD_SERVERS[@]} -eq 0 && "$CMD_ALL" != "true" ]]; then
+        msg_error "No servers specified. Use 'mcp enable SERVER' or 'mcp enable --all'"
+        return 1
+    fi
+
+    local enabled_count=0
+    local failed=()
+    local servers_to_enable=()
+
+    if [[ "$CMD_ALL" == "true" ]]; then
+        # Collect all disabled servers
+        while IFS=: read -r state server scope file source_type flags runtime; do
+            [[ -z "$server" ]] && continue
+            [[ -z "$flags" ]] && flags=""
+
+            # Skip enterprise and blocked servers
+            if [[ "$flags" == *"e"* ]] || [[ "$flags" == *"b"* ]] || [[ "$flags" == *"r"* ]]; then
+                continue
+            fi
+
+            if [[ "$state" == "off" ]] || [[ "$runtime" == "stopped" ]]; then
+                servers_to_enable+=("$server")
+            fi
+        done < "$STATE_FILE"
+    else
+        servers_to_enable=("${CMD_SERVERS[@]}")
+    fi
+
+    for server in "${servers_to_enable[@]}"; do
+        # Check if server exists in state file
+        if ! grep -q "^[^:]*:${server}:" "$STATE_FILE"; then
+            failed+=("$server (not found)")
+            continue
+        fi
+
+        # Get server info
+        local line
+        line=$(grep "^[^:]*:${server}:" "$STATE_FILE" | tail -1)
+        local flags
+        flags=$(echo "$line" | cut -d: -f6)
+        [[ -z "$flags" ]] && flags=""
+
+        # Check if server can be enabled
+        if [[ "$flags" == *"e"* ]]; then
+            failed+=("$server (enterprise-managed)")
+            continue
+        fi
+        if [[ "$flags" == *"b"* ]]; then
+            failed+=("$server (blocked by policy)")
+            continue
+        fi
+        if [[ "$flags" == *"r"* ]]; then
+            failed+=("$server (not in allowlist)")
+            continue
+        fi
+
+        # Update state file: change off to on, and clear runtime=stopped
+        # Format: state:server:scope:file:source_type:flags:runtime
+        sed -i "s/^off:${server}:/on:${server}:/" "$STATE_FILE"
+        # Also clear runtime=stopped (change to running)
+        sed -i "s/^\([^:]*:${server}:[^:]*:[^:]*:[^:]*:[^:]*:\)stopped$/\1running/" "$STATE_FILE"
+        ((enabled_count++)) || true
+    done
+
+    # Save changes (disable errexit temporarily as save_state_to_settings
+    # may have internal commands that return non-zero)
+    set +e
+    save_state_to_settings
+    local save_result=$?
+    set -e
+
+    if [[ $save_result -ne 0 ]]; then
+        msg_error "Failed to save configuration changes"
+        return 1
+    fi
+
+    # Output result
+    if [[ "$AUDIT_JSON" == "true" ]]; then
+        local failed_json="[]"
+        if [[ ${#failed[@]} -gt 0 ]]; then
+            failed_json=$(printf '%s\n' "${failed[@]}" | jq -R . | jq -s .)
+        fi
+        jq -n \
+            --argjson count "$enabled_count" \
+            --argjson failed "$failed_json" \
+            '{enabled: $count, failed: $failed}'
+    else
+        if [[ "$QUIET_MODE" != "true" ]]; then
+            if [[ $enabled_count -gt 0 ]]; then
+                msg_success "Enabled $enabled_count server(s)"
+            else
+                msg_info "No servers were enabled"
+            fi
+        fi
+        if [[ ${#failed[@]} -gt 0 ]]; then
+            for f in "${failed[@]}"; do
+                msg_warning "Failed: $f"
+            done
+        fi
+    fi
+
+    return 0
+}
+
+# Disable servers via CLI
+# Uses CMD_SERVERS array and CMD_ALL flag set by parse_args
+run_disable_servers() {
+    # Need to discover and load servers first
+    discover_settings_file
+    load_servers
+
+    # Validate at least one server specified or --all
+    if [[ ${#CMD_SERVERS[@]} -eq 0 && "$CMD_ALL" != "true" ]]; then
+        msg_error "No servers specified. Use 'mcp disable SERVER' or 'mcp disable --all'"
+        return 1
+    fi
+
+    local disabled_count=0
+    local failed=()
+    local servers_to_disable=()
+
+    if [[ "$CMD_ALL" == "true" ]]; then
+        # Collect all enabled servers
+        while IFS=: read -r state server scope file source_type flags runtime; do
+            [[ -z "$server" ]] && continue
+            [[ -z "$flags" ]] && flags=""
+
+            # Skip enterprise servers (cannot modify)
+            if [[ "$flags" == *"e"* ]]; then
+                continue
+            fi
+
+            if [[ "$state" == "on" ]] && [[ "$runtime" != "stopped" ]]; then
+                servers_to_disable+=("$server")
+            fi
+        done < "$STATE_FILE"
+    else
+        servers_to_disable=("${CMD_SERVERS[@]}")
+    fi
+
+    for server in "${servers_to_disable[@]}"; do
+        # Check if server exists in state file
+        if ! grep -q "^[^:]*:${server}:" "$STATE_FILE"; then
+            failed+=("$server (not found)")
+            continue
+        fi
+
+        # Get server info
+        local line
+        line=$(grep "^[^:]*:${server}:" "$STATE_FILE" | tail -1)
+        local flags
+        flags=$(echo "$line" | cut -d: -f6)
+        [[ -z "$flags" ]] && flags=""
+
+        # Check if server can be disabled
+        if [[ "$flags" == *"e"* ]]; then
+            failed+=("$server (enterprise-managed)")
+            continue
+        fi
+
+        # Update state file: change on to off
+        # Format: state:server:scope:file:source_type:flags:runtime
+        sed -i "s/^on:${server}:/off:${server}:/" "$STATE_FILE"
+        ((disabled_count++)) || true
+    done
+
+    # Save changes (disable errexit temporarily as save_state_to_settings
+    # may have internal commands that return non-zero)
+    set +e
+    save_state_to_settings
+    local save_result=$?
+    set -e
+
+    if [[ $save_result -ne 0 ]]; then
+        msg_error "Failed to save configuration changes"
+        return 1
+    fi
+
+    # Output result
+    if [[ "$AUDIT_JSON" == "true" ]]; then
+        local failed_json="[]"
+        if [[ ${#failed[@]} -gt 0 ]]; then
+            failed_json=$(printf '%s\n' "${failed[@]}" | jq -R . | jq -s .)
+        fi
+        jq -n \
+            --argjson count "$disabled_count" \
+            --argjson failed "$failed_json" \
+            '{disabled: $count, failed: $failed}'
+    else
+        if [[ "$QUIET_MODE" != "true" ]]; then
+            if [[ $disabled_count -gt 0 ]]; then
+                msg_success "Disabled $disabled_count server(s)"
+            else
+                msg_info "No servers were disabled"
+            fi
+        fi
+        if [[ ${#failed[@]} -gt 0 ]]; then
+            for f in "${failed[@]}"; do
+                msg_warning "Failed: $f"
+            done
+        fi
+    fi
+
+    return 0
 }
 
 # ============================================================================
@@ -4593,7 +4843,7 @@ main() {
 
     # Commands that only need jq (not fzf)
     case "$CMD_MODE" in
-        validate|audit|debug|fix|restore|rollback|export|sync|context)
+        validate|audit|debug|fix|restore|rollback|export|sync|context|enable|disable)
             if ! command -v jq &> /dev/null; then
                 msg_error "Missing required dependency: jq"
                 msg_info "Install with: sudo apt install jq"
@@ -4641,6 +4891,14 @@ main() {
                     ;;
                 context)
                     run_context_report
+                    exit $?
+                    ;;
+                enable)
+                    run_enable_servers
+                    exit $?
+                    ;;
+                disable)
+                    run_disable_servers
                     exit $?
                     ;;
             esac
