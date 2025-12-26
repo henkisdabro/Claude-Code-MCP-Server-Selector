@@ -51,6 +51,7 @@ AUDIT_JSON=false      # Output audit results as JSON
 FIX_APPLY=false       # Apply fixes without confirmation
 QUIET_MODE=false      # Suppress non-essential output (for hook usage)
 CMD_ALL=false         # For enable/disable --all flag
+EXPORT_CSV=false      # Output --export-disabled as CSV format
 declare -a CMD_SERVERS=()  # Server names for enable/disable commands
 
 # TUI filter state (persists during fzf session)
@@ -259,6 +260,39 @@ check_session_context() {
     fi
 }
 
+# Warn if running inside a Claude session (for subcommands)
+# Returns 0 if NOT in session, 1 if in session
+# Used by enable/disable/strict-disable commands to warn user
+warn_if_in_session() {
+    local in_session=false
+
+    # Check for various indicators of a Claude session
+    if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
+        in_session=true
+    fi
+    if [[ -n "${CLAUDE_CONVERSATION_ID:-}" ]]; then
+        in_session=true
+    fi
+    if [[ -n "${CLAUDE_CODE:-}" ]]; then
+        in_session=true
+    fi
+    if [[ -n "${MCP_TOOL_CALL:-}" ]]; then
+        in_session=true
+    fi
+
+    if [[ "$in_session" == true ]]; then
+        if [[ "$QUIET_MODE" != true ]]; then
+            echo ""
+            msg_warning "Running inside Claude session - changes may not take effect until restart"
+            msg_info "Tip: Use ${COLOR_CYAN}/mcp${COLOR_RESET} for in-session server management"
+            echo ""
+        fi
+        return 1
+    fi
+
+    return 0
+}
+
 # Get safe terminal width for lines
 # Returns: width (defaults to 60 for narrow terminals)
 get_term_width() {
@@ -375,6 +409,8 @@ INTEGRATION COMMANDS:
     mcp --export-disabled   Export disabled servers (for hook automation)
     mcp --export-disabled --json
                             Export as JSON format
+    mcp --export-disabled --csv
+                            Export as CSV format (server,state,type)
     mcp --export-disabled --quiet
                             Export without headers (machine-readable)
     mcp --sync-check        Compare config vs runtime state
@@ -429,6 +465,20 @@ EXAMPLES:
     mcp enable fetch github             # Enable specific servers
     mcp disable --all                   # Disable all servers
     mcp enable --json fetch             # Enable and output JSON result
+
+HOOK INTEGRATION:
+    Example SessionStart hook in .claude/settings.json:
+    {
+      "hooks": {
+        "SessionStart": [{
+          "type": "command",
+          "command": "./mcp --strict-disable --quiet"
+        }]
+      }
+    }
+
+    This ensures ORANGE servers are converted to RED before each session,
+    working around bug #13311 where disabledMcpServers is not enforced.
 
 For more information, see: https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector
 EOF
@@ -505,6 +555,10 @@ parse_args() {
                 ;;
             --json)
                 AUDIT_JSON=true
+                shift
+                ;;
+            --csv)
+                EXPORT_CSV=true
                 shift
                 ;;
             --apply)
@@ -1312,24 +1366,39 @@ run_export_disabled() {
     discover_settings_file
     load_servers
 
-    local disabled_servers=()
-    local orange_servers=()
+    # Build arrays with full info for CSV support
+    local -a disabled_servers=()
+    local -a disabled_types=()
+    local -a orange_servers=()
+    local -a orange_types=()
 
     while IFS= read -r line; do
         [[ -z "$line" || "$line" =~ ^# ]] && continue
 
         local state=$(echo "$line" | cut -d: -f1)
         local server=$(echo "$line" | cut -d: -f2)
+        local source_type=$(echo "$line" | cut -d: -f5)
         local runtime=$(echo "$line" | cut -d: -f7)
 
         if [[ "$state" == "off" ]]; then
             disabled_servers+=("$server")
+            disabled_types+=("$source_type")
         elif [[ "$state" == "on" && "$runtime" == "stopped" ]]; then
             orange_servers+=("$server")
+            orange_types+=("$source_type")
         fi
     done < "$STATE_FILE"
 
-    if [[ "$AUDIT_JSON" == true ]]; then
+    if [[ "$EXPORT_CSV" == true ]]; then
+        # CSV output with headers
+        echo "server,state,type"
+        for i in "${!disabled_servers[@]}"; do
+            echo "${disabled_servers[$i]},disabled,${disabled_types[$i]}"
+        done
+        for i in "${!orange_servers[@]}"; do
+            echo "${orange_servers[$i]},orange,${orange_types[$i]}"
+        done
+    elif [[ "$AUDIT_JSON" == true ]]; then
         # JSON output
         local json_disabled=$(printf '%s\n' "${disabled_servers[@]}" | jq -R . | jq -s .)
         local json_orange=$(printf '%s\n' "${orange_servers[@]}" | jq -R . | jq -s .)
@@ -1408,12 +1477,18 @@ run_sync_check() {
     printf "%-25s %-12s %-12s %s\n" "─────────────────────────" "────────────" "────────────" "──────────────"
 
     local sync_issues=0
+    # Track issues for detailed output
+    declare -a issue_servers=()
+    declare -a issue_configs=()
+    declare -a issue_runtimes=()
+    declare -a issue_types=()
 
     while IFS= read -r line; do
         [[ -z "$line" || "$line" =~ ^# ]] && continue
 
         local state=$(echo "$line" | cut -d: -f1)
         local server=$(echo "$line" | cut -d: -f2)
+        local source_type=$(echo "$line" | cut -d: -f5)
         local runtime=$(echo "$line" | cut -d: -f7)
 
         # Config state
@@ -1425,17 +1500,29 @@ run_sync_check() {
         local actual_runtime="${runtime_state[$server]:-unknown}"
 
         # Determine sync status
-        local sync_status="${COLOR_GREEN}✓ in sync${COLOR_RESET}"
+        local sync_status="${COLOR_GREEN}${MARK_SUCCESS} in sync${COLOR_RESET}"
 
         if [[ "$config_state" == "enabled" && "$actual_runtime" == "stopped" ]]; then
-            sync_status="${COLOR_YELLOW}⚡ config:on, runtime:off${COLOR_RESET}"
+            sync_status="${COLOR_YELLOW}! config:on, runtime:off${COLOR_RESET}"
             ((sync_issues++))
+            issue_servers+=("$server")
+            issue_configs+=("$config_state")
+            issue_runtimes+=("$actual_runtime")
+            issue_types+=("config_on_runtime_off:$source_type")
         elif [[ "$config_state" == "disabled" && "$actual_runtime" == "running" ]]; then
-            sync_status="${COLOR_RED}⚡ BUG #13311${COLOR_RESET}"
+            sync_status="${COLOR_RED}! BUG #13311${COLOR_RESET}"
             ((sync_issues++))
+            issue_servers+=("$server")
+            issue_configs+=("$config_state")
+            issue_runtimes+=("$actual_runtime")
+            issue_types+=("disabled_but_running:$source_type")
         elif [[ "$config_state" == "orange" && "$actual_runtime" == "running" ]]; then
-            sync_status="${COLOR_RED}⚡ BUG #13311${COLOR_RESET}"
+            sync_status="${COLOR_RED}! BUG #13311${COLOR_RESET}"
             ((sync_issues++))
+            issue_servers+=("$server")
+            issue_configs+=("$config_state")
+            issue_runtimes+=("$actual_runtime")
+            issue_types+=("orange_but_running:$source_type")
         elif [[ "$actual_runtime" == "unknown" ]]; then
             sync_status="${COLOR_GREY}? not in runtime${COLOR_RESET}"
         fi
@@ -1445,10 +1532,50 @@ run_sync_check() {
 
     echo ""
     if [[ $sync_issues -gt 0 ]]; then
-        echo -e "${COLOR_YELLOW}${MARK_WARNING} Found $sync_issues sync issues${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}══════════════════════════════════════════════════════════════${COLOR_RESET}"
+        echo -e "${COLOR_RED}ISSUES REQUIRING ATTENTION (${sync_issues})${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}══════════════════════════════════════════════════════════════${COLOR_RESET}"
         echo ""
-        echo -e "  ${COLOR_CYAN}Bug #13311${COLOR_RESET}: disabledMcpServers not enforced at session start"
-        echo -e "  ${COLOR_CYAN}Workaround${COLOR_RESET}: Run 'mcp --strict-disable' before launching Claude"
+
+        for i in "${!issue_servers[@]}"; do
+            local server="${issue_servers[$i]}"
+            local config="${issue_configs[$i]}"
+            local runtime="${issue_runtimes[$i]}"
+            local type_info="${issue_types[$i]}"
+            local issue_type="${type_info%%:*}"
+            local source_type="${type_info##*:}"
+
+            if [[ "$issue_type" == "disabled_but_running" ]]; then
+                echo -e "${COLOR_RED}[HIGH]${COLOR_RESET} ${COLOR_WHITE}${server}${COLOR_RESET}: Server running despite being disabled in config"
+                echo -e "  ${COLOR_GREY}Bug: #13311 - disabledMcpServers not enforced at session start${COLOR_RESET}"
+                echo -e "  ${COLOR_CYAN}Fix:${COLOR_RESET} Run '${COLOR_WHITE}mcp --strict-disable${COLOR_RESET}' before launching Claude"
+                if [[ "$source_type" == "mcpjson" ]]; then
+                    echo -e "       OR add to ${COLOR_WHITE}disabledMcpjsonServers${COLOR_RESET} in settings"
+                fi
+                echo ""
+            elif [[ "$issue_type" == "orange_but_running" ]]; then
+                echo -e "${COLOR_RED}[HIGH]${COLOR_RESET} ${COLOR_WHITE}${server}${COLOR_RESET}: Server running despite ORANGE (runtime-disabled) state"
+                echo -e "  ${COLOR_GREY}Bug: #13311 - disabledMcpServers not enforced at session start${COLOR_RESET}"
+                echo -e "  ${COLOR_CYAN}Fix:${COLOR_RESET} Run '${COLOR_WHITE}mcp --strict-disable${COLOR_RESET}' before launching Claude"
+                echo -e "       OR toggle to ${COLOR_RED}RED${COLOR_RESET} to fully disable"
+                echo ""
+            elif [[ "$issue_type" == "config_on_runtime_off" ]]; then
+                echo -e "${COLOR_YELLOW}[MEDIUM]${COLOR_RESET} ${COLOR_WHITE}${server}${COLOR_RESET}: Server not running despite being enabled"
+                echo -e "  ${COLOR_GREY}Possible causes: Server failed to start, connection error, or missing dependencies${COLOR_RESET}"
+                echo -e "  ${COLOR_CYAN}Fix:${COLOR_RESET} Check server logs with '${COLOR_WHITE}claude mcp get ${server}${COLOR_RESET}'"
+                echo -e "       OR restart Claude session to retry connection"
+                echo ""
+            fi
+        done
+
+        echo -e "${COLOR_WHITE}══════════════════════════════════════════════════════════════${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}RECOMMENDED ACTION${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}══════════════════════════════════════════════════════════════${COLOR_RESET}"
+        echo ""
+        echo -e "  ${COLOR_WHITE}Run:${COLOR_RESET} ./mcp --strict-disable && claude"
+        echo ""
+        echo -e "  ${COLOR_GREY}This converts ORANGE servers to RED before launching,${COLOR_RESET}"
+        echo -e "  ${COLOR_GREY}ensuring disabled servers stay disabled.${COLOR_RESET}"
         echo ""
     else
         echo -e "${COLOR_GREEN}${MARK_SUCCESS} All servers in sync${COLOR_RESET}"
@@ -1601,6 +1728,9 @@ run_context_report() {
 # Enable servers via CLI
 # Uses CMD_SERVERS array and CMD_ALL flag set by parse_args
 run_enable_servers() {
+    # Warn if running inside Claude session
+    warn_if_in_session || true
+
     # Need to discover and load servers first
     discover_settings_file
     load_servers
@@ -1713,6 +1843,9 @@ run_enable_servers() {
 # Disable servers via CLI
 # Uses CMD_SERVERS array and CMD_ALL flag set by parse_args
 run_disable_servers() {
+    # Warn if running inside Claude session
+    warn_if_in_session || true
+
     # Need to discover and load servers first
     discover_settings_file
     load_servers
@@ -1818,6 +1951,9 @@ run_disable_servers() {
 
 # Convert all ORANGE servers to RED (strict disable)
 apply_strict_disable() {
+    # Warn if running inside Claude session
+    warn_if_in_session || true
+
     local cwd
     cwd=$(pwd)
     local changed=false
