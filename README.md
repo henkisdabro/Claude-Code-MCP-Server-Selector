@@ -37,8 +37,11 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 - **Interactive TUI** - Fast, intuitive interface powered by fzf (<1 second startup)
 - **Real-time Updates** - Toggle servers instantly with visual feedback
 - **Multi-Source Configuration** - Discovers and merges 12+ configuration sources with scope precedence
-- **Marketplace Plugin Discovery** - Automatically finds ALL plugins with MCP servers (v1.5.0) **(NEW)**
-- **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist access control
+- **Marketplace Plugin Discovery** - Automatically finds ALL plugins with MCP servers
+- **CLI Subcommands** - `mcp enable/disable` for scriptable server control **(NEW v2.0)**
+- **Integration Commands** - `--export-disabled`, `--sync-check`, `--context-report` for automation **(NEW v2.0)**
+- **Session Awareness** - Detects running inside Claude session and warns appropriately **(NEW v2.0)**
+- **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist/command/URL matching **(Enhanced v2.1)**
 - **Smart Migration** - Automatically migrate global servers to project-level control
 - **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
 - **Cross-Platform** - Works on Linux and macOS out of the box
@@ -84,6 +87,49 @@ mcp --version                 # Shows Claude Code version
 ```
 
 The tool acts as a transparent wrapper - after you configure your servers and press ENTER, all arguments are forwarded to Claude Code automatically.
+
+### CLI Subcommands (NEW v2.0)
+
+Control servers directly from the command line without launching the TUI:
+
+```bash
+# Enable/disable specific servers
+mcp enable fetch github       # Enable multiple servers
+mcp disable notion playwright # Disable multiple servers
+
+# Bulk operations
+mcp enable --all              # Enable all discovered servers
+mcp disable --all             # Disable all discovered servers
+
+# Machine-readable output
+mcp enable fetch --json       # Output JSON result
+mcp disable fetch --quiet     # Silent operation (exit code only)
+```
+
+**Flags:**
+- `--json` - Output results in JSON format
+- `--quiet` / `-q` - Suppress all output (use exit code)
+- `--all` - Apply to all discovered servers
+
+### Integration Commands (NEW v2.0)
+
+Commands designed for scripting, hooks, and automation:
+
+```bash
+# Export disabled servers for hook integration
+mcp --export-disabled         # Comma-separated list: fetch,notion,github
+mcp --export-disabled --csv   # CSV format with header: server,state,type
+mcp --export-disabled --json  # JSON array format
+
+# Check for config/runtime sync issues (detects bug #13311)
+mcp --sync-check              # Shows servers with mismatched state
+mcp --sync-check --json       # JSON output with severity levels
+
+# Context token analysis
+mcp --context-report          # Show estimated token usage per server
+```
+
+**Session Awareness:** When running inside an active Claude session, the tool warns that changes take effect on the next session restart and suggests using `/mcp` or `@mention` for immediate toggles.
 
 ### Keybindings
 
@@ -293,6 +339,47 @@ Control which MCP servers users can enable via allowlists and denylists:
 - **Empty allowlist `[]`** - Complete lockdown (deny all non-enterprise servers)
 - **Undefined allowlist** - No restrictions (allow all servers)
 - **Invalid JSON** - Automatic lockdown mode (fail-safe security)
+
+### Advanced Restriction Matching (NEW v2.1)
+
+Beyond simple server name matching, enterprises can restrict servers by command or URL patterns:
+
+**By Server Command:**
+```json
+{
+  "deniedMcpServers": [
+    { "serverCommand": ["npx", "-y", "mcp-server-github"] }
+  ]
+}
+```
+Exact array match required (order and values must match).
+
+**By Server URL (for HTTP/SSE transports):**
+```json
+{
+  "allowedMcpServers": [
+    { "serverUrl": "https://*.company.com/*" }
+  ]
+}
+```
+Supports wildcard patterns with `*`.
+
+**Marketplace Restrictions:**
+```json
+{
+  "strictKnownMarketplaces": [
+    { "source": "github", "repo": "acme-corp/approved-plugins" }
+  ]
+}
+```
+Empty array `[]` triggers complete marketplace lockdown.
+
+### Exclusive Enterprise Mode
+
+When `managed-mcp.json` contains `mcpServers`, exclusive mode activates:
+- Users cannot add ANY servers
+- Only enterprise-defined servers are available
+- Banner displays "Exclusive Enterprise Mode" indicator
 
 ### User Experience with Enterprise Policies
 
@@ -551,7 +638,7 @@ The tool categorizes servers into four types:
 - **UI Indicator**: `●` (green) when enabled, `○` (red) when disabled
 - **Label**: Shows scope and type, e.g., `● fetch  │  mcpjson  │  project`
 
-#### Plugin Servers (Marketplace, v1.5.0) **(NEW)**
+#### Plugin Servers (Marketplace, v1.5.0)
 - **Source**: Discovered from Claude Code Marketplace installations
 - **Discovery Methods**:
   - Root-level `mcpServers` in marketplace.json
@@ -722,16 +809,6 @@ rm -rf ~/.config/mcp-selector
 
 Your Claude configuration files (`.claude/settings.json`) will not be affected.
 
-## Enterprise Environments
-
-**Note for Enterprise Users**: If you're in an organization using enterprise-managed MCP configurations, be aware that:
-
-- Administrators may deploy centralized MCP servers via `managed-mcp.json`
-- Your organization may restrict which MCP servers can be enabled via allowlists/denylists
-- This tool operates on user-level and project-level configurations only
-
-For enterprise configuration details, see the [official Claude Code documentation](https://docs.claude.ai/).
-
 ## Troubleshooting
 
 ### Dependencies not found
@@ -814,10 +891,14 @@ After saving changes with `ENTER`:
 
 ```
 Claude-Code-MCP-Server-Selector/
-├── mcp                            # Main executable (~3000 lines bash)
+├── mcp                            # Main executable (~5000 lines bash)
 ├── install.sh                     # Installation script
 ├── README.md                      # User documentation
+├── KNOWN_BUGS.md                  # Known Claude MCP bugs and workarounds
 ├── .claude/CLAUDE.md              # Claude Code session guidance
+├── tests/                         # Test suite
+│   └── unit/                      # Unit tests (bats)
+│       └── test_commands.bats     # CLI command tests
 └── reference/                     # Technical reference docs
     ├── ARCHITECTURE.md            # Function references, data flow
     ├── CONFIGURATION.md           # Config sources, control arrays
@@ -876,14 +957,24 @@ Run the tool:
 ### Common Commands
 
 ```bash
-# Launch tool
+# Launch TUI
 mcp         # Short command
 claudemcp   # Descriptive command
 
+# CLI subcommands (NEW v2.0)
+mcp enable fetch github       # Enable specific servers
+mcp disable --all             # Disable all servers
+mcp enable fetch --json       # JSON output
+
+# Integration commands (NEW v2.0)
+mcp --export-disabled         # List disabled servers
+mcp --sync-check              # Check config/runtime sync
+mcp --context-report          # Token usage analysis
+
 # Check server definitions
-jq '.mcpServers | keys' ~/.claude.json      # Global direct servers (use quick-disable or migrate)
-jq '.mcpServers | keys' ~/.mcp.json         # Global MCPJSON servers (fully controllable)
-jq '.mcpServers | keys' ./.mcp.json         # Project MCPJSON servers (fully controllable)
+jq '.mcpServers | keys' ~/.claude.json      # Global direct servers
+jq '.mcpServers | keys' ~/.mcp.json         # Global MCPJSON servers
+jq '.mcpServers | keys' ./.mcp.json         # Project MCPJSON servers
 
 # Check enabled/disabled state
 jq '.enabledMcpjsonServers' ./.claude/settings.local.json   # Local overrides

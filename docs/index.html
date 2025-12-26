@@ -42,7 +42,7 @@
             "url": "https://www.henriksoderlund.com"
         },
         "downloadUrl": "https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector",
-        "softwareVersion": "1.5.0",
+        "softwareVersion": "2.1.0",
         "screenshot": "https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/demo.gif",
         "keywords": "Claude Code, MCP, Model Context Protocol, context window, optimization, TUI, developer tools",
         "license": "https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector/blob/main/LICENSE"
@@ -241,7 +241,7 @@
                         <line x1="12" y1="8" x2="12" y2="12"></line>
                         <line x1="12" y1="16" x2="12.01" y2="16"></line>
                     </svg>
-                    <h3>3-Way Toggle Cycle <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">NEW</span></h3>
+                    <h3>3-Way Toggle Cycle</h3>
                     <p>RED (off) → GREEN (on) → ORANGE (paused) → RED. Keep servers configured but temporarily disabled without removing from config.</p>
                 </div>
                 <div class="feature-card">
@@ -276,7 +276,7 @@
                         <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
                         <line x1="12" y1="22.08" x2="12" y2="12"></line>
                     </svg>
-                    <h3>Marketplace Discovery <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">NEW</span></h3>
+                    <h3>Marketplace Discovery</h3>
                     <p>Automatically discovers ALL marketplace plugins with MCP servers, regardless of category. Finds plugins in developer-toolkit, analytics, ai, and more.</p>
                 </div>
                 <div class="feature-card">
@@ -285,8 +285,8 @@
                         <rect x="2" y="9" width="20" height="4" rx="1"></rect>
                         <rect x="2" y="15" width="20" height="4" rx="1"></rect>
                     </svg>
-                    <h3>🏢 Enterprise Support <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">NEW</span></h3>
-                    <p>Centralized MCP deployment with allowlist/denylist access control. IT manages approved servers, lockdown mode protects against misconfigurations.</p>
+                    <h3>🏢 Enterprise Support <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">v2.1</span></h3>
+                    <p>Centralized MCP deployment with allowlist/denylist/command/URL matching. Exclusive mode, marketplace lockdown, fail-safe security.</p>
                 </div>
                 <div class="feature-card">
                     <svg class="feature-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -297,6 +297,23 @@
                     </svg>
                     <h3>Smart Migration</h3>
                     <p>Automatically migrate global servers to project-level control with backup and rollback protection.</p>
+                </div>
+                <div class="feature-card">
+                    <svg class="feature-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="4 17 10 11 4 5"></polyline>
+                        <line x1="12" y1="19" x2="20" y2="19"></line>
+                    </svg>
+                    <h3>CLI Subcommands <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">v2.0</span></h3>
+                    <p><code>mcp enable/disable</code> for scriptable server control. Supports <code>--all</code>, <code>--json</code>, and <code>--quiet</code> flags.</p>
+                </div>
+                <div class="feature-card">
+                    <svg class="feature-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 20V10"></path>
+                        <path d="M12 20V4"></path>
+                        <path d="M6 20v-6"></path>
+                    </svg>
+                    <h3>Integration Commands <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">v2.0</span></h3>
+                    <p><code>--export-disabled</code>, <code>--sync-check</code>, <code>--context-report</code> for hook automation and bug detection.</p>
                 </div>
                 <div class="feature-card">
                     <svg class="feature-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -357,7 +374,7 @@
     <!-- Enterprise Section -->
     <section class="section section-enterprise" id="enterprise">
         <div class="container">
-            <h2 class="section-title">🏢 Enterprise MCP Support <span style="background: #d56126; color: white; padding: 4px 12px; border-radius: 6px; font-size: 0.6em; margin-left: 8px;">v1.3.0</span></h2>
+            <h2 class="section-title">🏢 Enterprise MCP Support <span style="background: #d56126; color: white; padding: 4px 12px; border-radius: 6px; font-size: 0.6em; margin-left: 8px;">v2.1</span></h2>
             <p class="section-intro">
                 Deploy centralized MCP servers organization-wide with enforced access policies. IT administrators control which servers are available while users maintain flexibility within approved boundaries.
             </p>
@@ -411,6 +428,25 @@
                     <li><strong>Empty allowlist = lockdown</strong> — Blocks all non-enterprise servers</li>
                     <li><strong>Invalid JSON = lockdown mode</strong> — Fail-safe protects against misconfigurations</li>
                 </ul>
+
+                <h3 style="margin-top: 2em;">Advanced Restriction Matching <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">v2.1</span></h3>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <h4>By Server Command</h4>
+                        <p>Match by exact command array: <code>{"serverCommand": ["npx", "-y", "mcp-server-github"]}</code></p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>By Server URL</h4>
+                        <p>Match HTTP/SSE servers with wildcards: <code>{"serverUrl": "https://*.company.com/*"}</code></p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>Marketplace Lockdown</h4>
+                        <p>Restrict plugins via <code>strictKnownMarketplaces</code>. Empty array blocks all marketplace plugins.</p>
+                    </div>
+                </div>
+
+                <h4 style="margin-top: 1.5em;">Exclusive Enterprise Mode</h4>
+                <p>When <code>managed-mcp.json</code> contains <code>mcpServers</code>, users cannot add ANY servers—only enterprise-defined servers are available.</p>
             </div>
         </div>
     </section>
@@ -459,6 +495,27 @@
                         </div>
                     </div>
                     <p style="margin-top: 1rem; color: #888; font-size: 0.9rem;">The tool acts as a transparent wrapper - all arguments are forwarded to Claude Code after configuration.</p>
+
+                    <h4 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--accent);">CLI Subcommands <span style="background: #d56126; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 4px;">v2.0</span></h4>
+                    <p style="margin-bottom: 1rem;">Control servers directly without the TUI:</p>
+                    <div class="usage-commands">
+                        <div class="command-example">
+                            <code>mcp enable fetch github</code>
+                            <span class="command-desc">Enable specific servers</span>
+                        </div>
+                        <div class="command-example">
+                            <code>mcp disable --all</code>
+                            <span class="command-desc">Disable all servers</span>
+                        </div>
+                        <div class="command-example">
+                            <code>mcp --export-disabled</code>
+                            <span class="command-desc">List disabled servers</span>
+                        </div>
+                        <div class="command-example">
+                            <code>mcp --sync-check</code>
+                            <span class="command-desc">Check config/runtime sync</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="keybindings">
