@@ -930,6 +930,117 @@ Restricts which marketplace sources users can install plugins from:
 - Undefined = No restrictions (users can add any marketplace)
 - Only listed sources are permitted for plugin installation
 
+## Enterprise Feature Completion (Phase G)
+
+### Enhanced Restriction Matching
+
+Phase G extends enterprise restrictions beyond simple server names to support three matching types:
+
+**1. serverName Matching** (Original):
+```json
+{
+  "allowedMcpServers": [{ "serverName": "github" }],
+  "deniedMcpServers": [{ "serverName": "fetch" }]
+}
+```
+
+**2. serverCommand Matching** (NEW):
+Match servers by their exact command and arguments array:
+```json
+{
+  "deniedMcpServers": [
+    { "serverCommand": ["npx", "-y", "mcp-server-github"] }
+  ]
+}
+```
+- Exact array match required (order and values must match)
+- Useful for blocking specific executables regardless of server name
+
+**3. serverUrl Matching** (NEW):
+Match http/sse transport servers by URL pattern:
+```json
+{
+  "allowedMcpServers": [
+    { "serverUrl": "https://*.company.com/*" }
+  ]
+}
+```
+- Supports wildcards: `*` matches any characters
+- Only applies to servers with `"type": "http"` or `"type": "sse"`
+
+### Exclusive Enterprise Mode
+
+When `managed-mcp.json` exists AND contains a `mcpServers` object:
+- `EXCLUSIVE_ENTERPRISE_MODE=true`
+- Users cannot add ANY servers
+- Only enterprise-defined servers are available
+- Banner displays: "Only enterprise-defined servers allowed"
+
+### Marketplace Lockdown
+
+When `strictKnownMarketplaces` is an empty array `[]`:
+- `MARKETPLACE_LOCKDOWN=true`
+- No new plugins can be installed from any marketplace
+- Banner displays: "Plugin marketplace disabled by policy"
+
+### Windows Path Support (WSL)
+
+Phase G adds support for official Windows paths on WSL:
+- `/mnt/c/ProgramData/ClaudeCode/...` (existing)
+- `/mnt/c/Program Files/ClaudeCode/...` (NEW - official path per Claude Code docs)
+
+Path checking order:
+1. `/mnt/c/ProgramData/ClaudeCode/...`
+2. `/mnt/c/Program Files/ClaudeCode/...`
+3. `/etc/claude-code/...` (Linux fallback on WSL)
+
+### Enhanced Banner Display
+
+The enterprise banner now shows:
+- Exclusive control mode status
+- Command-based restriction counts
+- URL-based restriction counts
+- Marketplace restriction status
+
+Example:
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏢 Enterprise Policies Active
+   • 2 enterprise-managed servers (cannot be modified)
+   • Only enterprise-defined servers allowed
+   • Access restricted to 5 approved servers (by name)
+   • Command restrictions active (Blocked: 3)
+   • URL restrictions active (Allowed: 2)
+   • Plugin marketplace restricted to 1 sources
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### New Helper Functions (Phase G)
+
+- `server_matches_command_restriction()` - Check command array against restrictions
+- `server_matches_url_restriction()` - Check URL against wildcard patterns
+- `get_server_command_json()` - Extract command+args as JSON array
+- `get_server_url()` - Extract URL for http/sse servers
+- `get_server_transport_type()` - Detect stdio/http/sse transport
+
+### New Global Variables (Phase G)
+
+```bash
+EXCLUSIVE_ENTERPRISE_MODE=false  # Only enterprise servers allowed
+MARKETPLACE_LOCKDOWN=false       # Marketplace disabled
+
+# Command restrictions (JSON arrays)
+declare -a ALLOWED_COMMANDS=()
+declare -a DENIED_COMMANDS=()
+
+# URL restrictions (wildcard patterns)
+declare -a ALLOWED_URLS=()
+declare -a DENIED_URLS=()
+
+# Marketplace restrictions (JSON objects)
+declare -a STRICT_MARKETPLACES=()
+```
+
 ## Native Claude Code CLI Reference
 
 This section documents the native Claude Code CLI commands for MCP server management. These are built-in commands provided by Claude Code itself.

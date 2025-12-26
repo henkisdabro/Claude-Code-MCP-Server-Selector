@@ -41,7 +41,7 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly VERSION="2.0.0"  # Bug workarounds, audit mode, debug commands
+readonly VERSION="2.1.0"  # Phase G: Enterprise feature completion
 
 # Command-line mode flags (set by argument parsing)
 CMD_MODE=""           # "" = TUI mode, "audit" | "validate" | "debug" | "fix" | "restore" | "help" | "export" | "sync" | "context" | "enable" | "disable"
@@ -71,13 +71,16 @@ readonly BACKUP_DIR="$HOME/.claude/backups"
 
 # Get platform-specific path for managed-mcp.json
 # Returns: Path string or empty if not found
-# Handles: Linux, macOS, WSL (checks both Windows and Linux paths)
+# Handles: Linux, macOS, WSL (checks Windows ProgramData, Program Files, and Linux paths)
 get_enterprise_mcp_path() {
-    # Detect WSL first - check both Windows and Linux paths
+    # Detect WSL first - check multiple Windows paths and Linux path
     if grep -qi microsoft /proc/version 2>/dev/null; then
-        local win_path="/mnt/c/ProgramData/ClaudeCode/managed-mcp.json"
+        # Check official Windows paths (in order of preference)
+        local win_path_1="/mnt/c/ProgramData/ClaudeCode/managed-mcp.json"
+        local win_path_2="/mnt/c/Program Files/ClaudeCode/managed-mcp.json"
         local lin_path="/etc/claude-code/managed-mcp.json"
-        [[ -f "$win_path" ]] && echo "$win_path" && return 0
+        [[ -f "$win_path_1" ]] && echo "$win_path_1" && return 0
+        [[ -f "$win_path_2" ]] && echo "$win_path_2" && return 0
         [[ -f "$lin_path" ]] && echo "$lin_path" && return 0
         return 1
     elif [[ "$(uname -s)" == "Darwin" ]]; then
@@ -91,11 +94,15 @@ get_enterprise_mcp_path() {
 
 # Get platform-specific path for managed-settings.json
 # Returns: Path string or empty if not found
+# Handles: Linux, macOS, WSL (checks Windows ProgramData, Program Files, and Linux paths)
 get_enterprise_settings_path() {
     if grep -qi microsoft /proc/version 2>/dev/null; then
-        local win_path="/mnt/c/ProgramData/ClaudeCode/managed-settings.json"
+        # Check official Windows paths (in order of preference)
+        local win_path_1="/mnt/c/ProgramData/ClaudeCode/managed-settings.json"
+        local win_path_2="/mnt/c/Program Files/ClaudeCode/managed-settings.json"
         local lin_path="/etc/claude-code/managed-settings.json"
-        [[ -f "$win_path" ]] && echo "$win_path" && return 0
+        [[ -f "$win_path_1" ]] && echo "$win_path_1" && return 0
+        [[ -f "$win_path_2" ]] && echo "$win_path_2" && return 0
         [[ -f "$lin_path" ]] && echo "$lin_path" && return 0
         return 1
     elif [[ "$(uname -s)" == "Darwin" ]]; then
@@ -135,10 +142,26 @@ SETTINGS_SCOPE=""
 ENTERPRISE_MODE="none"        # none|active|lockdown
 ENTERPRISE_SERVER_COUNT=0
 RESTRICTION_TYPE="none"       # none|allowlist|denylist|both
+EXCLUSIVE_ENTERPRISE_MODE=false  # When true, only enterprise-defined servers allowed
+MARKETPLACE_LOCKDOWN=false    # When strictKnownMarketplaces is empty array
 
-# Restriction data
+# Restriction data - serverName matching
 declare -a ALLOWED_SERVERS=()
 declare -a DENIED_SERVERS=()
+
+# Restriction data - serverCommand matching (Phase G)
+# Each element is a JSON-encoded array: '["npx","-y","mcp-server-github"]'
+declare -a ALLOWED_COMMANDS=()
+declare -a DENIED_COMMANDS=()
+
+# Restriction data - serverUrl matching (Phase G)
+# Each element is a URL pattern with wildcards: 'https://*.company.com/*'
+declare -a ALLOWED_URLS=()
+declare -a DENIED_URLS=()
+
+# Marketplace restrictions (Phase G)
+# Each element is JSON: '{"source":"github","repo":"acme-corp/plugins"}'
+declare -a STRICT_MARKETPLACES=()
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -281,7 +304,7 @@ warn_if_in_session() {
     fi
 
     if [[ "$in_session" == true ]]; then
-        if [[ "$QUIET_MODE" != true ]]; then
+        if [[ "$QUIET_MODE" != "true" && "$AUDIT_JSON" != "true" ]]; then
             echo ""
             msg_warning "Running inside Claude session - changes may not take effect until restart"
             msg_info "Tip: Use ${COLOR_CYAN}/mcp${COLOR_RESET} for in-session server management"
@@ -2509,6 +2532,7 @@ parse_plugin_marketplace_files() {
 # Parse enterprise MCP servers from managed-mcp.json
 # Output: Lines in format "def:server:enterprise:file:mcpjson:e"
 # Flag 'e' = enterprise-managed (immutable)
+# Also detects exclusive control mode when mcpServers is present
 parse_enterprise_mcp_json() {
     local file
     file=$(get_enterprise_mcp_path)
@@ -2520,6 +2544,14 @@ parse_enterprise_mcp_json() {
     if ! jq empty "$file" 2>/dev/null; then
         msg_warning "Enterprise MCP file has invalid JSON: $file"
         return 1
+    fi
+
+    # Check if mcpServers object exists (triggers exclusive control mode)
+    local has_mcp_servers
+    has_mcp_servers=$(jq -r 'has("mcpServers")' "$file" 2>/dev/null)
+    if [[ "$has_mcp_servers" == "true" ]]; then
+        # When managed-mcp.json has mcpServers, only enterprise servers are allowed
+        EXCLUSIVE_ENTERPRISE_MODE=true
     fi
 
     # Parse mcpServers object keys
@@ -2536,7 +2568,8 @@ parse_enterprise_mcp_json() {
 }
 
 # Parse enterprise restrictions from managed-settings.json
-# Sets global variables: ALLOWED_SERVERS, DENIED_SERVERS, ENTERPRISE_MODE, RESTRICTION_TYPE
+# Sets global variables: ALLOWED_SERVERS, DENIED_SERVERS, ALLOWED_COMMANDS, DENIED_COMMANDS,
+#                        ALLOWED_URLS, DENIED_URLS, STRICT_MARKETPLACES, ENTERPRISE_MODE, RESTRICTION_TYPE
 # Returns: 0 on success, 1 on error (triggers lockdown mode)
 parse_enterprise_restrictions() {
     local file
@@ -2557,21 +2590,83 @@ parse_enterprise_restrictions() {
         return 1
     fi
 
-    # Parse allowedMcpServers
+    # === Parse allowedMcpServers (serverName, serverCommand, serverUrl) ===
     local allowed_raw
     allowed_raw=$(jq -r '.allowedMcpServers[]?.serverName // empty' "$file" 2>/dev/null)
     if [[ -n "$allowed_raw" ]]; then
         mapfile -t ALLOWED_SERVERS <<< "$allowed_raw"
     fi
 
-    # Parse deniedMcpServers
+    # Parse serverCommand restrictions (array of command+args)
+    local allowed_commands_raw
+    allowed_commands_raw=$(jq -c '.allowedMcpServers[]? | select(.serverCommand != null) | .serverCommand' "$file" 2>/dev/null)
+    if [[ -n "$allowed_commands_raw" ]]; then
+        mapfile -t ALLOWED_COMMANDS <<< "$allowed_commands_raw"
+    fi
+
+    # Parse serverUrl restrictions (URL patterns with wildcards)
+    local allowed_urls_raw
+    allowed_urls_raw=$(jq -r '.allowedMcpServers[]?.serverUrl // empty' "$file" 2>/dev/null)
+    if [[ -n "$allowed_urls_raw" ]]; then
+        mapfile -t ALLOWED_URLS <<< "$allowed_urls_raw"
+    fi
+
+    # === Parse deniedMcpServers (serverName, serverCommand, serverUrl) ===
     local denied_raw
     denied_raw=$(jq -r '.deniedMcpServers[]?.serverName // empty' "$file" 2>/dev/null)
     if [[ -n "$denied_raw" ]]; then
         mapfile -t DENIED_SERVERS <<< "$denied_raw"
     fi
 
-    # Determine restriction type
+    # Parse serverCommand restrictions (array of command+args)
+    local denied_commands_raw
+    denied_commands_raw=$(jq -c '.deniedMcpServers[]? | select(.serverCommand != null) | .serverCommand' "$file" 2>/dev/null)
+    if [[ -n "$denied_commands_raw" ]]; then
+        mapfile -t DENIED_COMMANDS <<< "$denied_commands_raw"
+    fi
+
+    # Parse serverUrl restrictions (URL patterns with wildcards)
+    local denied_urls_raw
+    denied_urls_raw=$(jq -r '.deniedMcpServers[]?.serverUrl // empty' "$file" 2>/dev/null)
+    if [[ -n "$denied_urls_raw" ]]; then
+        mapfile -t DENIED_URLS <<< "$denied_urls_raw"
+    fi
+
+    # === Parse strictKnownMarketplaces ===
+    local has_strict_marketplaces
+    has_strict_marketplaces=$(jq -r 'has("strictKnownMarketplaces")' "$file" 2>/dev/null)
+    if [[ "$has_strict_marketplaces" == "true" ]]; then
+        # Check if empty array (lockdown mode)
+        local marketplace_count
+        marketplace_count=$(jq -r '.strictKnownMarketplaces | length' "$file" 2>/dev/null)
+        if [[ "$marketplace_count" == "0" ]]; then
+            MARKETPLACE_LOCKDOWN=true
+        else
+            # Parse marketplace restrictions
+            local marketplaces_raw
+            marketplaces_raw=$(jq -c '.strictKnownMarketplaces[]?' "$file" 2>/dev/null)
+            if [[ -n "$marketplaces_raw" ]]; then
+                mapfile -t STRICT_MARKETPLACES <<< "$marketplaces_raw"
+            fi
+        fi
+    fi
+
+    # Determine restriction type based on all restriction types
+    local has_name_restrictions=false
+    local has_command_restrictions=false
+    local has_url_restrictions=false
+
+    if [[ ${#ALLOWED_SERVERS[@]} -gt 0 ]] || [[ ${#DENIED_SERVERS[@]} -gt 0 ]]; then
+        has_name_restrictions=true
+    fi
+    if [[ ${#ALLOWED_COMMANDS[@]} -gt 0 ]] || [[ ${#DENIED_COMMANDS[@]} -gt 0 ]]; then
+        has_command_restrictions=true
+    fi
+    if [[ ${#ALLOWED_URLS[@]} -gt 0 ]] || [[ ${#DENIED_URLS[@]} -gt 0 ]]; then
+        has_url_restrictions=true
+    fi
+
+    # Set restriction type for backward compatibility (primary name-based check)
     if [[ ${#ALLOWED_SERVERS[@]} -gt 0 ]] && [[ ${#DENIED_SERVERS[@]} -gt 0 ]]; then
         RESTRICTION_TYPE="both"
     elif [[ ${#ALLOWED_SERVERS[@]} -gt 0 ]]; then
@@ -2582,7 +2677,15 @@ parse_enterprise_restrictions() {
         RESTRICTION_TYPE="none"
     fi
 
-    ENTERPRISE_MODE="active"
+    # Mark enterprise mode as active if any restrictions exist
+    if [[ "$has_name_restrictions" == "true" ]] || \
+       [[ "$has_command_restrictions" == "true" ]] || \
+       [[ "$has_url_restrictions" == "true" ]] || \
+       [[ "$MARKETPLACE_LOCKDOWN" == "true" ]] || \
+       [[ ${#STRICT_MARKETPLACES[@]} -gt 0 ]]; then
+        ENTERPRISE_MODE="active"
+    fi
+
     return 0
 }
 
@@ -2620,29 +2723,225 @@ server_in_denylist() {
     return 1
 }
 
+# Check if a server's command matches a restriction command array
+# Args: $1 - server command JSON (e.g., '["npx","-y","mcp-server-github"]')
+#       $2 - restriction type ("allowed" or "denied")
+# Returns: 0 if matches any restriction, 1 if not
+server_matches_command_restriction() {
+    local server_command_json="$1"
+    local restriction_type="$2"
+
+    # Select the appropriate array
+    local -n restriction_array
+    if [[ "$restriction_type" == "allowed" ]]; then
+        restriction_array=ALLOWED_COMMANDS
+    else
+        restriction_array=DENIED_COMMANDS
+    fi
+
+    # No restrictions = no match
+    [[ ${#restriction_array[@]} -eq 0 ]] && return 1
+
+    # Compare JSON arrays (exact match)
+    for cmd_json in "${restriction_array[@]}"; do
+        [[ -z "$cmd_json" ]] && continue
+        # Use jq to compare arrays (handles ordering and formatting)
+        if [[ "$server_command_json" == "$cmd_json" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Check if a server's URL matches a restriction URL pattern with wildcards
+# Args: $1 - server URL (e.g., 'https://api.company.com/mcp/')
+#       $2 - restriction type ("allowed" or "denied")
+# Returns: 0 if matches any restriction pattern, 1 if not
+# Supports wildcards: * matches any characters
+server_matches_url_restriction() {
+    local server_url="$1"
+    local restriction_type="$2"
+
+    # Select the appropriate array
+    local -n restriction_array
+    if [[ "$restriction_type" == "allowed" ]]; then
+        restriction_array=ALLOWED_URLS
+    else
+        restriction_array=DENIED_URLS
+    fi
+
+    # No restrictions = no match
+    [[ ${#restriction_array[@]} -eq 0 ]] && return 1
+
+    # Check each URL pattern
+    for url_pattern in "${restriction_array[@]}"; do
+        [[ -z "$url_pattern" ]] && continue
+
+        # Convert wildcard pattern to regex:
+        # - Escape regex special chars except *
+        # - Replace * with .*
+        local regex_pattern
+        regex_pattern=$(echo "$url_pattern" | sed 's/[.[\^$+?{|()]/\\&/g' | sed 's/\*/.\*/g')
+
+        if [[ "$server_url" =~ ^${regex_pattern}$ ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Get server's command as JSON array for matching
+# Args: $1 - server name, $2 - definition file path
+# Returns: JSON array of command+args (e.g., '["npx","-y","mcp-server-fetch"]')
+get_server_command_json() {
+    local server="$1"
+    local def_file="$2"
+
+    [[ ! -f "$def_file" ]] && return 1
+
+    # Extract command and args from mcpServers definition
+    local cmd args
+    cmd=$(jq -r --arg srv "$server" '.mcpServers[$srv].command // empty' "$def_file" 2>/dev/null)
+    [[ -z "$cmd" ]] && return 1
+
+    args=$(jq -c --arg srv "$server" '.mcpServers[$srv].args // []' "$def_file" 2>/dev/null)
+
+    # Build JSON array: [command, ...args]
+    echo "[$cmd]" | jq --argjson args "$args" '. + $args' 2>/dev/null
+}
+
+# Get server's URL for matching (http/sse transport types)
+# Args: $1 - server name, $2 - definition file path
+# Returns: URL string or empty if not http/sse transport
+get_server_url() {
+    local server="$1"
+    local def_file="$2"
+
+    [[ ! -f "$def_file" ]] && return 1
+
+    # Check if server has type field (http or sse)
+    local transport_type url
+    transport_type=$(jq -r --arg srv "$server" '.mcpServers[$srv].type // "stdio"' "$def_file" 2>/dev/null)
+
+    if [[ "$transport_type" == "http" ]] || [[ "$transport_type" == "sse" ]]; then
+        url=$(jq -r --arg srv "$server" '.mcpServers[$srv].url // empty' "$def_file" 2>/dev/null)
+        echo "$url"
+    fi
+}
+
+# Get server's transport type
+# Args: $1 - server name, $2 - definition file path
+# Returns: "stdio" (default), "http", or "sse"
+get_server_transport_type() {
+    local server="$1"
+    local def_file="$2"
+
+    [[ ! -f "$def_file" ]] && echo "stdio" && return 0
+
+    local transport_type
+    transport_type=$(jq -r --arg srv "$server" '.mcpServers[$srv].type // "stdio"' "$def_file" 2>/dev/null)
+    echo "${transport_type:-stdio}"
+}
+
 # Main validation function - implements truth table from ENTERPRISE_FEATURE_PLAN.md
-# Args: $1 - server name, $2 - scope (enterprise/local/project/user)
+# Args: $1 - server name, $2 - scope (enterprise/local/project/user),
+#       $3 - definition file (optional, for command/url matching)
 # Returns: 0 if allowed, 1 if blocked
 is_server_allowed() {
     local server="$1"
     local scope="${2:-user}"
+    local def_file="${3:-}"
 
     # Lockdown mode - only allow enterprise servers
     if [[ "$ENTERPRISE_MODE" == "lockdown" ]]; then
         [[ "$scope" == "enterprise" ]] && return 0 || return 1
     fi
 
-    # Rule 1: Denylist is absolute (blocks ALL scopes including enterprise)
+    # Exclusive enterprise mode - only allow enterprise servers
+    if [[ "$EXCLUSIVE_ENTERPRISE_MODE" == "true" ]] && [[ "$scope" != "enterprise" ]]; then
+        return 1
+    fi
+
+    # === Check denylist (absolute - blocks ALL scopes including enterprise) ===
+
+    # Rule 1a: Check serverName denylist
     server_in_denylist "$server" && return 1
+
+    # Rule 1b: Check serverCommand denylist (if def_file provided)
+    if [[ -n "$def_file" ]] && [[ ${#DENIED_COMMANDS[@]} -gt 0 ]]; then
+        local server_cmd_json
+        server_cmd_json=$(get_server_command_json "$server" "$def_file")
+        if [[ -n "$server_cmd_json" ]]; then
+            server_matches_command_restriction "$server_cmd_json" "denied" && return 1
+        fi
+    fi
+
+    # Rule 1c: Check serverUrl denylist (if def_file provided)
+    if [[ -n "$def_file" ]] && [[ ${#DENIED_URLS[@]} -gt 0 ]]; then
+        local server_url
+        server_url=$(get_server_url "$server" "$def_file")
+        if [[ -n "$server_url" ]]; then
+            server_matches_url_restriction "$server_url" "denied" && return 1
+        fi
+    fi
 
     # Rule 2: Enterprise servers bypass allowlist
     [[ "$scope" == "enterprise" ]] && return 0
 
-    # Rule 3: Check allowlist (only for non-enterprise)
-    # If allowlist exists (even if empty), it acts as whitelist
+    # === Check allowlist (only for non-enterprise) ===
+
+    # Determine if any allowlist restrictions exist
+    local has_allowlist=false
     if [[ ${#ALLOWED_SERVERS[@]} -gt 0 ]] || \
-       jq -e '.allowedMcpServers' "$(get_enterprise_settings_path)" &>/dev/null; then
-        server_in_allowlist "$server" && return 0 || return 1
+       [[ ${#ALLOWED_COMMANDS[@]} -gt 0 ]] || \
+       [[ ${#ALLOWED_URLS[@]} -gt 0 ]]; then
+        has_allowlist=true
+    fi
+
+    # Also check if allowedMcpServers key exists (empty array = lockdown)
+    if [[ "$has_allowlist" == "false" ]]; then
+        local settings_path
+        settings_path=$(get_enterprise_settings_path)
+        if [[ -n "$settings_path" ]] && [[ -f "$settings_path" ]]; then
+            if jq -e '.allowedMcpServers' "$settings_path" &>/dev/null; then
+                has_allowlist=true
+            fi
+        fi
+    fi
+
+    # If allowlist exists, server must match at least one criterion
+    if [[ "$has_allowlist" == "true" ]]; then
+        # Check serverName allowlist
+        if server_in_allowlist "$server"; then
+            return 0
+        fi
+
+        # Check serverCommand allowlist (if def_file provided)
+        if [[ -n "$def_file" ]] && [[ ${#ALLOWED_COMMANDS[@]} -gt 0 ]]; then
+            local server_cmd_json
+            server_cmd_json=$(get_server_command_json "$server" "$def_file")
+            if [[ -n "$server_cmd_json" ]]; then
+                if server_matches_command_restriction "$server_cmd_json" "allowed"; then
+                    return 0
+                fi
+            fi
+        fi
+
+        # Check serverUrl allowlist (if def_file provided)
+        if [[ -n "$def_file" ]] && [[ ${#ALLOWED_URLS[@]} -gt 0 ]]; then
+            local server_url
+            server_url=$(get_server_url "$server" "$def_file")
+            if [[ -n "$server_url" ]]; then
+                if server_matches_url_restriction "$server_url" "allowed"; then
+                    return 0
+                fi
+            fi
+        fi
+
+        # Server not in any allowlist
+        return 1
     fi
 
     # Rule 4: No restrictions
@@ -2866,10 +3165,13 @@ load_servers() {
     raw_data=$(discover_and_parse_all_sources)
 
     if [[ -z "$raw_data" ]]; then
-        msg_warning "No MCP servers found in any configuration file"
-        echo ""
-        msg_info "You can add servers using Ctrl-A in the TUI"
-        echo ""
+        # Only show warnings in TUI/normal mode, not in JSON or quiet mode
+        if [[ "$AUDIT_JSON" != "true" && "$QUIET_MODE" != "true" ]]; then
+            msg_warning "No MCP servers found in any configuration file"
+            echo ""
+            msg_info "You can add servers using Ctrl-A in the TUI"
+            echo ""
+        fi
         touch "$STATE_FILE"
         return 0
     fi
@@ -3023,7 +3325,7 @@ load_servers() {
         if [[ "$def_scope" != "enterprise" ]]; then
             if server_in_denylist "$server"; then
                 flags="${flags}b"
-            elif ! is_server_allowed "$server" "$def_scope"; then
+            elif ! is_server_allowed "$server" "$def_scope" "$def_file"; then
                 flags="${flags}r"
             fi
         fi
@@ -4473,8 +4775,11 @@ generate_fzf_list() {
 # Show enterprise policy banner in TUI header
 # Only displays if enterprise mode is active
 show_enterprise_banner() {
-    # Skip if no enterprise config
-    [[ "$ENTERPRISE_MODE" == "none" ]] && return 0
+    # Skip if no enterprise config and no restrictions
+    [[ "$ENTERPRISE_MODE" == "none" ]] && \
+    [[ "$EXCLUSIVE_ENTERPRISE_MODE" == "false" ]] && \
+    [[ "$MARKETPLACE_LOCKDOWN" == "false" ]] && \
+    [[ ${#STRICT_MARKETPLACES[@]} -eq 0 ]] && return 0
 
     echo -e "${COLOR_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}🏢 Enterprise Policies Active${COLOR_RESET}"
@@ -4484,18 +4789,56 @@ show_enterprise_banner() {
         echo -e "   • ${COLOR_CYAN}${ENTERPRISE_SERVER_COUNT}${COLOR_RESET} enterprise-managed servers (cannot be modified)"
     fi
 
-    # Show restriction type
+    # Exclusive control mode
+    if [[ "$EXCLUSIVE_ENTERPRISE_MODE" == "true" ]]; then
+        echo -e "   • ${COLOR_RED}Only enterprise-defined servers allowed${COLOR_RESET}"
+    fi
+
+    # Show restriction type (serverName based)
     case "$RESTRICTION_TYPE" in
         allowlist)
-            echo -e "   • ${COLOR_YELLOW}Access restricted to ${#ALLOWED_SERVERS[@]} approved servers${COLOR_RESET}"
+            echo -e "   • ${COLOR_YELLOW}Access restricted to ${#ALLOWED_SERVERS[@]} approved servers (by name)${COLOR_RESET}"
             ;;
         denylist)
-            echo -e "   • ${COLOR_RED}${#DENIED_SERVERS[@]} servers blocked by policy${COLOR_RESET}"
+            echo -e "   • ${COLOR_RED}${#DENIED_SERVERS[@]} servers blocked by policy (by name)${COLOR_RESET}"
             ;;
         both)
-            echo -e "   • ${COLOR_YELLOW}Allowlist (${#ALLOWED_SERVERS[@]}) and denylist (${#DENIED_SERVERS[@]}) active${COLOR_RESET}"
+            echo -e "   • ${COLOR_YELLOW}Allowlist (${#ALLOWED_SERVERS[@]}) and denylist (${#DENIED_SERVERS[@]}) active (by name)${COLOR_RESET}"
             ;;
     esac
+
+    # Show command-based restrictions
+    if [[ ${#ALLOWED_COMMANDS[@]} -gt 0 ]] || [[ ${#DENIED_COMMANDS[@]} -gt 0 ]]; then
+        local cmd_msg=""
+        if [[ ${#ALLOWED_COMMANDS[@]} -gt 0 ]] && [[ ${#DENIED_COMMANDS[@]} -gt 0 ]]; then
+            cmd_msg="Allowed: ${#ALLOWED_COMMANDS[@]}, Blocked: ${#DENIED_COMMANDS[@]}"
+        elif [[ ${#ALLOWED_COMMANDS[@]} -gt 0 ]]; then
+            cmd_msg="Allowed: ${#ALLOWED_COMMANDS[@]}"
+        else
+            cmd_msg="Blocked: ${#DENIED_COMMANDS[@]}"
+        fi
+        echo -e "   • ${COLOR_CYAN}Command restrictions active${COLOR_RESET} ($cmd_msg)"
+    fi
+
+    # Show URL-based restrictions
+    if [[ ${#ALLOWED_URLS[@]} -gt 0 ]] || [[ ${#DENIED_URLS[@]} -gt 0 ]]; then
+        local url_msg=""
+        if [[ ${#ALLOWED_URLS[@]} -gt 0 ]] && [[ ${#DENIED_URLS[@]} -gt 0 ]]; then
+            url_msg="Allowed: ${#ALLOWED_URLS[@]}, Blocked: ${#DENIED_URLS[@]}"
+        elif [[ ${#ALLOWED_URLS[@]} -gt 0 ]]; then
+            url_msg="Allowed: ${#ALLOWED_URLS[@]}"
+        else
+            url_msg="Blocked: ${#DENIED_URLS[@]}"
+        fi
+        echo -e "   • ${COLOR_CYAN}URL restrictions active${COLOR_RESET} ($url_msg)"
+    fi
+
+    # Marketplace restrictions
+    if [[ "$MARKETPLACE_LOCKDOWN" == "true" ]]; then
+        echo -e "   • ${COLOR_RED}Plugin marketplace disabled by policy${COLOR_RESET}"
+    elif [[ ${#STRICT_MARKETPLACES[@]} -gt 0 ]]; then
+        echo -e "   • ${COLOR_YELLOW}Plugin marketplace restricted to ${#STRICT_MARKETPLACES[@]} sources${COLOR_RESET}"
+    fi
 
     # Lockdown mode warning
     if [[ "$ENTERPRISE_MODE" == "lockdown" ]]; then
@@ -4832,14 +5175,22 @@ launch_fzf_tui() {
     export -f plugin_enabled_in_lower_scope get_project_plugin_value
     export -f get_server_definition_location extract_server_definition
     export -f migrate_server_to_project_mcpjson prompt_for_migration load_servers
-    # Enterprise functions (Phase 6)
+    # Enterprise functions (Phase 6 + Phase G)
     export -f get_enterprise_mcp_path get_enterprise_settings_path
     export -f parse_enterprise_mcp_json parse_enterprise_restrictions
     export -f server_in_allowlist server_in_denylist is_server_allowed
     export -f show_toggle_error show_enterprise_banner
+    # Phase G: Command and URL matching functions
+    export -f server_matches_command_restriction server_matches_url_restriction
+    export -f get_server_command_json get_server_url get_server_transport_type
     # Enterprise globals
     export ENTERPRISE_MODE ENTERPRISE_SERVER_COUNT RESTRICTION_TYPE
+    export EXCLUSIVE_ENTERPRISE_MODE MARKETPLACE_LOCKDOWN
     export ALLOWED_SERVERS DENIED_SERVERS
+    # Phase G: Command, URL, and marketplace restriction data
+    export ALLOWED_COMMANDS DENIED_COMMANDS
+    export ALLOWED_URLS DENIED_URLS
+    export STRICT_MARKETPLACES
 
     clear
 
