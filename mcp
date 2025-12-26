@@ -2522,6 +2522,26 @@ parse_plugin_marketplace_files() {
             local full_name="${plugin_name}@${marketplace_name}"
             echo "def:${full_name}:user:${mcp_file}:plugin"
         done
+
+        # THIRD: Check for plugins with INLINE mcpServers object (not a string reference)
+        # These plugins have mcpServers directly embedded in marketplace.json
+        # Example: "mcpServers": { "fetch": { "command": "uvx", ... } }
+        # vs reference: "mcpServers": "./.mcp.json"
+        # SKIP plugins that also have a .mcp.json file (SECOND check handles those)
+        jq -r '.plugins[]? | select(.mcpServers != null) | select(.mcpServers | type == "object") | "\(.name):\(.source)"' "$marketplace_file" 2>/dev/null | \
+        while IFS=: read -r plugin_name plugin_source; do
+            [[ -z "$plugin_name" ]] && continue
+
+            # Skip if plugin also has a .mcp.json file (already handled by SECOND check)
+            if [[ -n "$plugin_source" ]] && [[ -f "${marketplace_base}/${plugin_source}/.mcp.json" ]]; then
+                continue
+            fi
+
+            # Output using PLUGIN NAME
+            # Format: plugin-name@marketplace
+            local full_name="${plugin_name}@${marketplace_name}"
+            echo "def:${full_name}:user:${marketplace_file}:plugin"
+        done
     done < <(find "$marketplace_dir" -path "*/.claude-plugin/marketplace.json" -type f 2>/dev/null)
 }
 
@@ -2742,11 +2762,13 @@ server_matches_command_restriction() {
     # No restrictions = no match
     [[ ${#restriction_array[@]} -eq 0 ]] && return 1
 
-    # Compare JSON arrays (exact match)
+    # Compare JSON arrays semantically using jq
     for cmd_json in "${restriction_array[@]}"; do
         [[ -z "$cmd_json" ]] && continue
-        # Use jq to compare arrays (handles ordering and formatting)
-        if [[ "$server_command_json" == "$cmd_json" ]]; then
+        # Use jq for semantic JSON comparison (handles whitespace/formatting differences)
+        local are_equal
+        are_equal=$(jq -n --argjson a "$server_command_json" --argjson b "$cmd_json" '$a == $b' 2>/dev/null)
+        if [[ "$are_equal" == "true" ]]; then
             return 0
         fi
     done
@@ -2779,10 +2801,11 @@ server_matches_url_restriction() {
         [[ -z "$url_pattern" ]] && continue
 
         # Convert wildcard pattern to regex:
-        # - Escape regex special chars except *
+        # - Escape regex special chars (except *)
         # - Replace * with .*
+        # Using multiple sed expressions for robustness
         local regex_pattern
-        regex_pattern=$(echo "$url_pattern" | sed 's/[.[\^$+?{|()]/\\&/g' | sed 's/\*/.\*/g')
+        regex_pattern=$(printf '%s' "$url_pattern" | sed -e 's/\./\\./g' -e 's/\[/\\[/g' -e 's/\]/\\]/g' -e 's/\^/\\^/g' -e 's/\$/\\$/g' -e 's/+/\\+/g' -e 's/?/\\?/g' -e 's/{/\\{/g' -e 's/|/\\|/g' -e 's/(/\\(/g' -e 's/)/\\)/g' | sed 's/\*/.*/g')
 
         if [[ "$server_url" =~ ^${regex_pattern}$ ]]; then
             return 0
@@ -2802,14 +2825,15 @@ get_server_command_json() {
     [[ ! -f "$def_file" ]] && return 1
 
     # Extract command and args from mcpServers definition
-    local cmd args
-    cmd=$(jq -r --arg srv "$server" '.mcpServers[$srv].command // empty' "$def_file" 2>/dev/null)
-    [[ -z "$cmd" ]] && return 1
+    local cmd_json args
+    # Use @json filter with -r to get properly quoted JSON string
+    cmd_json=$(jq -r --arg srv "$server" '.mcpServers[$srv].command // empty | @json' "$def_file" 2>/dev/null)
+    [[ -z "$cmd_json" || "$cmd_json" == '""' ]] && return 1
 
     args=$(jq -c --arg srv "$server" '.mcpServers[$srv].args // []' "$def_file" 2>/dev/null)
 
     # Build JSON array: [command, ...args]
-    echo "[$cmd]" | jq --argjson args "$args" '. + $args' 2>/dev/null
+    echo "[$cmd_json]" | jq -c --argjson args "$args" '. + $args' 2>/dev/null
 }
 
 # Get server's URL for matching (http/sse transport types)
@@ -2900,12 +2924,14 @@ is_server_allowed() {
         has_allowlist=true
     fi
 
-    # Also check if allowedMcpServers key exists (empty array = lockdown)
+    # Also check if allowedMcpServers key exists AND is an array (empty array = lockdown)
+    # Note: null or non-array values are treated as "no restriction"
     if [[ "$has_allowlist" == "false" ]]; then
         local settings_path
         settings_path=$(get_enterprise_settings_path)
         if [[ -n "$settings_path" ]] && [[ -f "$settings_path" ]]; then
-            if jq -e '.allowedMcpServers' "$settings_path" &>/dev/null; then
+            # Check key exists AND is an array type (not null, string, etc.)
+            if jq -e '.allowedMcpServers | type == "array"' "$settings_path" &>/dev/null; then
                 has_allowlist=true
             fi
         fi

@@ -814,9 +814,14 @@ After saving changes with `ENTER`:
 
 ```
 Claude-Code-MCP-Server-Selector/
-├── mcp              # Main executable
-├── install.sh       # Installation script
-├── README.md        # This file
+├── mcp                            # Main executable (~3000 lines bash)
+├── install.sh                     # Installation script
+├── README.md                      # User documentation
+├── .claude/CLAUDE.md              # Claude Code session guidance
+└── reference/                     # Technical reference docs
+    ├── ARCHITECTURE.md            # Function references, data flow
+    ├── CONFIGURATION.md           # Config sources, control arrays
+    └── ENTERPRISE.md              # Enterprise features
 ```
 
 ### Testing
