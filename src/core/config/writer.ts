@@ -6,7 +6,7 @@
  */
 
 import { writeFileSync, renameSync, copyFileSync, mkdirSync, existsSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -23,10 +23,13 @@ function ensureDir(dir: string): void {
 }
 
 /**
- * Generate a temporary file path
+ * Generate a temporary file path in the same directory as target
+ *
+ * Using the same directory ensures atomic rename works across filesystems
+ * (avoids EXDEV errors on WSL and when /tmp is on different mount)
  */
-function getTempPath(): string {
-  return join(tmpdir(), `mcp-${randomUUID()}.json`);
+function getTempPath(targetPath: string): string {
+  return join(dirname(targetPath), `.mcp-${randomUUID()}.tmp`);
 }
 
 /**
@@ -67,7 +70,7 @@ export function atomicWriteJson(
   data: unknown,
   options?: { backup?: boolean }
 ): void {
-  const tempPath = getTempPath();
+  const tempPath = getTempPath(filePath);
 
   // Ensure parent directory exists
   ensureDir(dirname(filePath));

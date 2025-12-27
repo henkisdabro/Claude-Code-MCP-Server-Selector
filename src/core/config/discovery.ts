@@ -7,7 +7,7 @@
 
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type {
   ConfigSource,
   RawDefinition,
@@ -170,9 +170,6 @@ export async function extractRawDefinitions(
   const definitions: RawDefinition[] = [];
   const sources = await discoverAllSources(cwd);
 
-  // Track seen plugin servers to avoid duplicates between installed_plugins and marketplace
-  const seenPluginServers = new Set<string>();
-
   for (const source of sources) {
     if (!source.exists) continue;
 
@@ -191,14 +188,7 @@ export async function extractRawDefinitions(
           definitions.push(...(await extractFromClaudeJson(source, cwd)));
           break;
         case 'installed-plugins': {
-          const pluginDefs = await extractFromInstalledPlugins(source);
-          // Track these servers so marketplace discovery skips them
-          for (const def of pluginDefs) {
-            if (def.type === 'def') {
-              seenPluginServers.add(def.server);
-            }
-          }
-          definitions.push(...pluginDefs);
+          definitions.push(...(await extractFromInstalledPlugins(source)));
           break;
         }
         case 'plugin': {
@@ -312,6 +302,17 @@ async function extractFromSettings(source: ConfigSource): Promise<RawDefinition[
     }
   }
 
+  // enableAllProjectMcpServers flag - auto-enables all project-scope MCPJSON servers
+  if (data.enableAllProjectMcpServers === true) {
+    definitions.push({
+      type: 'enable-all-project',
+      server: '*',  // Applies to all project MCPJSON servers
+      scope: source.scope,
+      file: source.path,
+      sourceType: 'mcpjson',
+    });
+  }
+
   return definitions;
 }
 
@@ -359,8 +360,10 @@ async function extractFromClaudeJson(
 
   // Project-specific configurations
   if (data.projects) {
+    // Normalise cwd to handle trailing slashes and resolve symlinks
+    const normalisedCwd = resolve(cwd).replace(/\/+$/, '');
     // Find the current project entry
-    const projectEntry = data.projects[cwd];
+    const projectEntry = data.projects[normalisedCwd];
 
     if (projectEntry) {
       // Project-specific mcpServers (direct-local)

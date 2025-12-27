@@ -211,7 +211,7 @@ export interface ConfigSource {
 
 /** Raw definition before precedence resolution */
 export interface RawDefinition {
-  type: 'def' | 'enable' | 'disable' | 'disable-plugin' | 'runtime-disable';
+  type: 'def' | 'enable' | 'disable' | 'disable-plugin' | 'runtime-disable' | 'enable-all-project';
   server: string;
   scope: Scope;
   file: string;

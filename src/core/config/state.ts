@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Server, SettingsSchema, ClaudeJsonSchema } from '@/types/index.js';
 import { getProjectSettingsPath } from '@/utils/platform.js';
+import { getPluginKey, getPluginDisableFormat } from '@/utils/plugin.js';
 import { parseSettingsJson, parseClaudeJson } from './parser.js';
 import { atomicWriteJson } from './writer.js';
 import { getDisplayState } from '../servers/toggle.js';
@@ -85,19 +86,9 @@ export async function saveServerStates(
   // Key format: pluginName@marketplace (NOT serverKey:pluginName@marketplace)
   const enabledPlugins: Record<string, boolean> = {};
 
-  // Helper to extract plugin key from server name
-  // Server format: serverKey:pluginName@marketplace
-  // Plugin key format: pluginName@marketplace
-  const getPluginKey = (serverName: string): string | null => {
-    const colonIdx = serverName.indexOf(':');
-    const atIdx = serverName.indexOf('@');
-    if (colonIdx !== -1 && atIdx > colonIdx) {
-      return serverName.substring(colonIdx + 1);
-    }
-    return null;
-  };
-
   // Track which plugins we've processed to handle multiple servers per plugin
+  // Note: When a plugin has multiple MCP servers, the first server's state
+  // determines the plugin's enabled state
   const processedPlugins = new Set<string>();
 
   for (const server of pluginServers) {
@@ -124,27 +115,6 @@ export async function saveServerStates(
   const disabledMcpServersList: string[] = [];
   for (const server of servers) {
     const displayState = getDisplayState(server);
-
-    // Helper to get plugin format for disabledMcpServers
-    // Server name format: {serverKey}:{pluginName}@{marketplace} or {serverKey}@{marketplace}
-    // Output format: plugin:{pluginName}:{serverKey}
-    const getPluginDisableFormat = (name: string): string => {
-      const atIdx = name.indexOf('@');
-      if (atIdx === -1) return name;
-
-      const beforeAt = name.substring(0, atIdx);
-      const colonIdx = beforeAt.indexOf(':');
-
-      if (colonIdx !== -1) {
-        // Format: serverKey:pluginName@marketplace
-        const serverKey = beforeAt.substring(0, colonIdx);
-        const pluginName = beforeAt.substring(colonIdx + 1);
-        return `plugin:${pluginName}:${serverKey}`;
-      } else {
-        // Format: serverKey@marketplace (root-level server, no plugin name)
-        return `plugin:${beforeAt}:${beforeAt}`;
-      }
-    };
 
     // ORANGE state: any server type that's enabled but runtime-disabled
     if (displayState === 'orange') {

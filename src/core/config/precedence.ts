@@ -16,6 +16,7 @@ import type {
   Scope,
   ServerFlags,
 } from '@/types/index.js';
+import { getPluginKey } from '@/utils/plugin.js';
 
 /** Scope priority values */
 const PRIORITY: Record<Scope, number> = {
@@ -62,6 +63,9 @@ export function resolveServers(
   // Map 4: Track plugin enable/disable state (pluginName@marketplace -> state)
   // This is separate because enabledPlugins uses plugin names, not server names
   const pluginStates = new Map<string, { priority: number; enabled: boolean }>();
+
+  // Track enableAllProjectMcpServers flag and its priority
+  let enableAllProject: { priority: number; enabled: boolean } | null = null;
 
   // Process all raw definitions
   for (const item of rawData) {
@@ -143,6 +147,14 @@ export function resolveServers(
         }
         break;
       }
+
+      case 'enable-all-project': {
+        // enableAllProjectMcpServers flag - auto-enables project MCPJSON servers
+        if (!enableAllProject || priority >= enableAllProject.priority) {
+          enableAllProject = { priority, enabled: true };
+        }
+        break;
+      }
     }
   }
 
@@ -166,19 +178,6 @@ export function resolveServers(
     return false;
   };
 
-  // Helper to extract plugin key from server name
-  // Server format: serverKey:pluginName@marketplace
-  // Plugin key format: pluginName@marketplace
-  const getPluginKey = (serverName: string): string | null => {
-    const colonIdx = serverName.indexOf(':');
-    const atIdx = serverName.indexOf('@');
-    if (colonIdx !== -1 && atIdx > colonIdx) {
-      // Format: serverKey:pluginName@marketplace -> pluginName@marketplace
-      return serverName.substring(colonIdx + 1);
-    }
-    return null;
-  };
-
   // Helper to check if a plugin is enabled based on enabledPlugins
   // Returns: true = enabled, false = disabled, null = not specified (default enabled)
   const getPluginEnabledState = (serverName: string): boolean | null => {
@@ -195,7 +194,7 @@ export function resolveServers(
     const inDisabled = isInDisabledMcpServers(name);
 
     // Determine state based on source type and control mechanism
-    let state: ServerState = stateEntry?.state ?? 'on'; // Default enabled
+    let state: ServerState;
 
     // For plugin servers, enabledPlugins is the primary control mechanism
     if (def.sourceType === 'plugin') {
@@ -209,10 +208,21 @@ export function resolveServers(
         // If not in disabledMcpServers, it's GREEN (on and running)
         state = 'on';
       }
+    } else if (def.sourceType === 'mcpjson') {
+      // For mcpjson servers, state comes from enabledMcpjsonServers/disabledMcpjsonServers
+      if (stateEntry) {
+        // Explicit state from enable/disable arrays
+        state = stateEntry.state;
+      } else {
+        // No explicit state - default to on
+        // Note: enableAllProjectMcpServers flag affects the approval dialog,
+        // not the default enabled state. Once defined, servers default to 'on'.
+        state = 'on';
+      }
+    } else {
+      // For direct servers, use explicit state or default to on
+      state = stateEntry?.state ?? 'on';
     }
-
-    // For mcpjson servers, state comes from enabledMcpjsonServers/disabledMcpjsonServers
-    // This is already handled via states map, no additional logic needed
 
     // For direct servers, disabledMcpServers is the primary control mechanism
     // If in disabledMcpServers, they should be disabled (state=off)
