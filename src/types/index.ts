@@ -30,7 +30,7 @@ export type Scope = 'enterprise' | 'local' | 'project' | 'user';
 export type DisplayState = 'red' | 'green' | 'orange';
 
 /** Special flags for server access control */
-export interface ServerFlags {
+export interface EnterpriseFlags {
   /** Enterprise-managed server (immutable) */
   enterprise: boolean;
   /** Blocked by enterprise denylist */
@@ -85,12 +85,19 @@ export interface Server {
   /** How the server was discovered */
   sourceType: SourceType;
   /** Access control flags */
-  flags: ServerFlags;
+  flags: EnterpriseFlags;
   /** Runtime status (if known) */
   runtime: RuntimeStatus;
   /** The actual server definition (for preview) */
   definition?: ServerDefinition;
+  /** Full command array for matching (command + args) */
+  command?: string[];
+  /** Server URL for http/sse transport matching */
+  url?: string;
 }
+
+/** Alias for enterprise flags (backward compatibility) */
+export type ServerFlags = EnterpriseFlags;
 
 /** Plugin-specific server metadata */
 export interface PluginServer extends Server {
@@ -145,6 +152,9 @@ export interface EnterpriseRestriction {
   serverCommand?: string[];
   serverUrl?: string;
 }
+
+/** Alias for server restriction matching */
+export type ServerRestriction = EnterpriseRestriction;
 
 /** Enterprise managed-settings.json */
 export interface EnterpriseSettingsSchema {
