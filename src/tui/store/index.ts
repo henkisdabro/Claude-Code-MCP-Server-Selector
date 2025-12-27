@@ -16,7 +16,7 @@ import {
   getDisplayState,
 } from '@/core/servers/toggle.js';
 
-export type TuiMode = 'list' | 'add' | 'confirm-delete' | 'confirm-hard-disable';
+export type TuiMode = 'list' | 'add' | 'confirm-delete' | 'confirm-hard-disable' | 'migrate';
 
 interface TuiState {
   // Data
@@ -47,6 +47,9 @@ interface TuiState {
   disableAll: () => void;
   addServer: (name: string) => void;
   removeServer: (name: string) => void;
+  hardDisablePlugin: (name: string) => void;
+  migrateServer: (cwd: string) => Promise<boolean>;
+  refreshRuntimeStatus: () => Promise<void>;
   save: (cwd: string) => Promise<boolean>;
 
   // Computed
@@ -179,6 +182,119 @@ export const useTuiStore = create<TuiState>((set, get) => ({
       mode: 'list',
       confirmTarget: null,
     });
+  },
+
+  // Hard disable plugin (sets enabledPlugins[name] = false)
+  hardDisablePlugin: (name: string) => {
+    const { servers } = get();
+    const server = servers.find((s) => s.name === name);
+
+    if (!server || server.sourceType !== 'plugin') {
+      set({ mode: 'list', confirmTarget: null });
+      return;
+    }
+
+    // Mark as hard-disabled by setting state to off
+    // The save function will write enabledPlugins[name] = false
+    const updated = servers.map((s) =>
+      s.name === name
+        ? { ...s, state: 'off' as const, flags: { ...s.flags, hardDisabled: true } }
+        : s
+    );
+
+    set({
+      servers: updated,
+      dirty: true,
+      mode: 'list',
+      confirmTarget: null,
+    });
+  },
+
+  // Migrate direct server to .mcp.json
+  migrateServer: async (cwd: string) => {
+    const { servers, getSelectedServer } = get();
+    const selected = getSelectedServer();
+
+    if (!selected) {
+      set({ mode: 'list', confirmTarget: null });
+      return false;
+    }
+
+    // Only migrate direct servers
+    if (!selected.sourceType.startsWith('direct')) {
+      set({
+        error: 'Only Direct servers can be migrated',
+        mode: 'list',
+        confirmTarget: null,
+      });
+      return false;
+    }
+
+    try {
+      // Import the migration function dynamically
+      const { migrateServerToProject } = await import('@/core/config/migration.js');
+
+      const result = await migrateServerToProject(selected, cwd);
+
+      if (!result.success) {
+        set({
+          error: result.error || 'Migration failed',
+          mode: 'list',
+          confirmTarget: null,
+        });
+        return false;
+      }
+
+      // Update the server in our list to reflect the new location
+      const updated = servers.map((s) =>
+        s.name === selected.name
+          ? {
+              ...s,
+              sourceType: 'mcpjson' as const,
+              scope: 'project' as const,
+              definitionFile: './.mcp.json',
+            }
+          : s
+      );
+
+      set({
+        servers: updated,
+        dirty: false, // Migration saves directly, so not dirty
+        mode: 'list',
+        confirmTarget: null,
+      });
+
+      return true;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Migration failed',
+        mode: 'list',
+        confirmTarget: null,
+      });
+      return false;
+    }
+  },
+
+  // Refresh runtime status by calling claude mcp list
+  refreshRuntimeStatus: async () => {
+    const { servers } = get();
+
+    try {
+      // Import the runtime check function dynamically
+      const { getRuntimeStatus } = await import('@/core/config/runtime.js');
+
+      const runtimeStates = await getRuntimeStatus();
+
+      // Update servers with runtime status
+      const updated = servers.map((s) => ({
+        ...s,
+        runtime: runtimeStates[s.name] || 'unknown',
+      }));
+
+      set({ servers: updated });
+    } catch {
+      // Silently fail - runtime status is optional
+    }
   },
 
   // Save changes

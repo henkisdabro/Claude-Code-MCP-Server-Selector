@@ -10,6 +10,9 @@ import { Header } from './components/Header.js';
 import { ServerList } from './components/ServerList.js';
 import { Preview } from './components/Preview.js';
 import { StatusBar } from './components/StatusBar.js';
+import { ConfirmDialog } from './components/ConfirmDialog.js';
+import { InputDialog } from './components/InputDialog.js';
+import { MigrateDialog } from './components/MigrateDialog.js';
 import { useKeyBindings } from './hooks/useKeyBindings.js';
 import { useTuiStore } from './store/index.js';
 import { getDisplayState } from '@/core/servers/toggle.js';
@@ -31,6 +34,7 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
     selectedIndex,
     filter,
     mode,
+    confirmTarget,
     loading,
     error,
     dirty,
@@ -41,6 +45,11 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
     toggle,
     enableAll,
     disableAll,
+    addServer,
+    removeServer,
+    hardDisablePlugin,
+    migrateServer,
+    refreshRuntimeStatus,
     save,
     getFilteredServers,
     getSelectedServer,
@@ -66,7 +75,10 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
     onPageDown: () => moveSelection(10),
     onToggle: toggle,
     onMigrate: () => {
-      // TODO: Implement migration
+      const selected = getSelectedServer();
+      if (selected?.sourceType.startsWith('direct')) {
+        setMode('migrate', selected.name);
+      }
     },
     onHardDisable: () => {
       const selected = getSelectedServer();
@@ -82,6 +94,9 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
       if (selected && !selected.flags.enterprise) {
         setMode('confirm-delete', selected.name);
       }
+    },
+    onRefresh: () => {
+      refreshRuntimeStatus();
     },
     onSetFilter: setFilter,
     onSave: async () => {
@@ -121,6 +136,87 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
   const enabledCount = servers.filter((s) => getDisplayState(s) !== 'red').length;
   const disabledCount = servers.filter((s) => getDisplayState(s) === 'red').length;
 
+  // Find target server for dialogs
+  const targetServer = confirmTarget
+    ? servers.find((s) => s.name === confirmTarget)
+    : selectedServer;
+
+  // Render dialog overlays
+  const renderDialog = () => {
+    switch (mode) {
+      case 'confirm-delete':
+        if (!targetServer) return null;
+        return (
+          <ConfirmDialog
+            title="Delete Server"
+            message={`Remove "${targetServer.name}" from ${targetServer.definitionFile}?`}
+            confirmLabel="Delete"
+            cancelLabel="Cancel"
+            variant="danger"
+            onConfirm={() => {
+              removeServer(targetServer.name);
+            }}
+            onCancel={() => setMode('list')}
+          />
+        );
+
+      case 'confirm-hard-disable':
+        if (!targetServer) return null;
+        return (
+          <ConfirmDialog
+            title="Hard Disable Plugin"
+            message={`Set enabledPlugins["${targetServer.name}"] = false?\n\nThis will completely hide the plugin from Claude UI.`}
+            confirmLabel="Disable"
+            cancelLabel="Cancel"
+            variant="warning"
+            onConfirm={() => {
+              hardDisablePlugin(targetServer.name);
+            }}
+            onCancel={() => setMode('list')}
+          />
+        );
+
+      case 'add':
+        return (
+          <InputDialog
+            title="Add New Server"
+            placeholder="Enter server name..."
+            onSubmit={(name) => {
+              addServer(name);
+            }}
+            onCancel={() => setMode('list')}
+            validate={(name) => {
+              if (!name.trim()) return 'Name is required';
+              if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+                return 'Name can only contain letters, numbers, hyphens, and underscores';
+              }
+              if (servers.some((s) => s.name === name)) {
+                return 'Server with this name already exists';
+              }
+              return null;
+            }}
+          />
+        );
+
+      case 'migrate':
+        if (!targetServer) return null;
+        return (
+          <MigrateDialog
+            server={targetServer}
+            onConfirm={async () => {
+              await migrateServer(cwd);
+            }}
+            onCancel={() => setMode('list')}
+          />
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  const dialog = renderDialog();
+
   return (
     <Box flexDirection="column" padding={1}>
       {/* Header with stats */}
@@ -131,18 +227,27 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
         dirty={dirty}
       />
 
-      {/* Main content: Server list + Preview */}
-      <Box flexDirection="row" flexGrow={1}>
-        <ServerList
-          servers={filteredServers}
-          selectedIndex={selectedIndex}
-          filter={filter}
-        />
-        <Preview server={selectedServer} />
-      </Box>
+      {/* Main content or Dialog */}
+      {dialog ? (
+        <Box flexDirection="column" flexGrow={1} justifyContent="center" alignItems="center">
+          {dialog}
+        </Box>
+      ) : (
+        <>
+          {/* Main content: Server list + Preview */}
+          <Box flexDirection="row" flexGrow={1}>
+            <ServerList
+              servers={filteredServers}
+              selectedIndex={selectedIndex}
+              filter={filter}
+            />
+            <Preview server={selectedServer} />
+          </Box>
 
-      {/* Status bar with shortcuts */}
-      <StatusBar filter={filter} />
+          {/* Status bar with shortcuts */}
+          <StatusBar filter={filter} />
+        </>
+      )}
     </Box>
   );
 };

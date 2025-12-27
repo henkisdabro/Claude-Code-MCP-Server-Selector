@@ -28,6 +28,9 @@ interface KeyBindingHandlers {
   onAdd: () => void;
   onRemove: () => void;
 
+  // Refresh
+  onRefresh: () => void;
+
   // Filters
   onSetFilter: (filter: FilterType) => void;
 
@@ -123,6 +126,9 @@ export function useKeyBindings(handlers: KeyBindingHandlers): void {
           return;
         case 'x':
           handlers.onRemove();
+          return;
+        case 'r':
+          handlers.onRefresh();
           return;
       }
     }

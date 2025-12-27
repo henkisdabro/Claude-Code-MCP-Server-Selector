@@ -260,6 +260,9 @@ export interface AuditIssue {
   file: string;
   message: string;
   suggestion?: string;
+  fixable?: boolean;
+  fixType?: 'remove-key' | 'move-array' | 'remove-explicit-false';
+  fixData?: Record<string, unknown>;
 }
 
 /** Audit result */

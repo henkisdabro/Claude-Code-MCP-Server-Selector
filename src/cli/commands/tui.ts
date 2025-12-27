@@ -11,8 +11,10 @@ import { spawn } from 'node:child_process';
 import { existsSync, readlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import chalk from 'chalk';
 import { canRunTui } from '@/utils/terminal.js';
 import { App } from '@/tui/App.js';
+import { getSessionContext, formatSessionWarning } from '@/utils/session.js';
 
 export interface TuiOptions {
   strictDisable?: boolean;
@@ -94,6 +96,19 @@ export async function runTui(options: TuiOptions): Promise<void> {
       console.error(`  - ${issue}`);
     }
     process.exit(1);
+  }
+
+  // Check for session context and show warning
+  const sessionCtx = getSessionContext();
+  if (sessionCtx.inSession && !options.quiet) {
+    const warning = formatSessionWarning();
+    if (warning) {
+      console.log(chalk.yellow('Warning:'));
+      for (const line of warning.split('\n')) {
+        console.log(chalk.yellow(`  ${line}`));
+      }
+      console.log();
+    }
   }
 
   const cwd = process.cwd();
