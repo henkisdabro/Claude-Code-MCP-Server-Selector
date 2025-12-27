@@ -4,17 +4,20 @@ Guidance for Claude Code when working on this repository.
 
 ## Project Overview
 
-Bash TUI tool for managing MCP servers in Claude Code. Uses `fzf` for interactive selection, `jq` for JSON manipulation. Single script (`mcp`) discovers 12+ config sources, applies dual precedence resolution, and writes changes atomically.
+TypeScript TUI tool for managing MCP servers in Claude Code. Uses Ink (React for CLI) for interactive selection. Discovers 12+ config sources, applies dual precedence resolution, and writes changes atomically.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `mcp` | Main executable (~3000 lines bash) |
-| `install.sh` | Installation script |
-| `reference/ARCHITECTURE.md` | Detailed function references and data flow |
-| `reference/CONFIGURATION.md` | All config sources and control arrays |
-| `reference/ENTERPRISE.md` | Enterprise feature details |
+| `src/cli/index.ts` | CLI entry point with Commander.js commands |
+| `src/tui/App.tsx` | Main Ink TUI application |
+| `src/tui/store/index.ts` | Zustand state management |
+| `src/core/config/discovery.ts` | Config source discovery |
+| `src/core/config/precedence.ts` | Dual precedence resolution |
+| `src/core/config/state.ts` | State persistence |
+| `src/core/servers/toggle.ts` | 3-way toggle logic |
+| `install-npm.sh` | npm-based installation script |
 
 ## Critical Guardrails
 
@@ -30,13 +33,17 @@ These arrays ONLY work in specific files - putting them elsewhere has NO effect:
 
 Setting `enabledPlugins["name"] = false` makes plugin disappear from Claude UI entirely. Use omit strategy instead of explicit false.
 
+### Plugin Key Format
+
+`enabledPlugins` uses `pluginName@marketplace` format (e.g., `developer-toolkit@wookstar-claude-code-plugins`), NOT the full server name format (`serverKey:pluginName@marketplace`).
+
 ### Dual Precedence
 
 Definition (where server is configured) and state (whether on/off) are resolved INDEPENDENTLY. A server can be defined in one file but controlled from another.
 
 ### Atomic Writes
 
-Always use temp file + `mv` pattern for JSON updates. Never write directly.
+Always use temp file + rename pattern for JSON updates. Never write directly.
 
 ## Server Types
 
@@ -47,13 +54,13 @@ Always use temp file + `mv` pattern for JSON updates. Never write directly.
 | direct-local | `~/.claude.json` `.projects[cwd].mcpServers` | `disabledMcpServers` in same section |
 | plugin | Marketplace installations | `enabledPlugins` object |
 
-## 3-Way Toggle
+## 3-Way Toggle (Display States)
 
-RED (off) -> GREEN (on) -> ORANGE (paused) -> RED
+RED (off) → GREEN (on) → ORANGE (paused) → RED
 
-- **RED**: `state=off`, in `disabledMcpjsonServers`
-- **GREEN**: `state=on`, `runtime!=stopped`, in `enabledMcpjsonServers`
-- **ORANGE**: `state=on`, `runtime=stopped`, in `disabledMcpServers`
+- **RED**: `state=off` - Server is disabled
+- **GREEN**: `state=on`, `runtime!=stopped` - Server is enabled and running
+- **ORANGE**: `state=on`, `runtime=stopped` - Server is enabled but paused
 
 ## Scope Priority
 
@@ -65,84 +72,52 @@ RED (off) -> GREEN (on) -> ORANGE (paused) -> RED
 ## Development Commands
 
 ```bash
-# Validate bash syntax
-bash -n mcp
+# TypeScript type checking
+npm run typecheck
 
-# Check dependencies
-command -v fzf jq
+# Linting
+npm run lint
 
-# Run directly
-./mcp
+# Build
+npm run build
 
-# Debug mode (slow, shows runtime state)
-FAST_MODE=false ./mcp
+# Run tests
+npm test
+
+# Run CLI directly (after build)
+node dist/cli.js
+
+# Development with tsx
+npx tsx src/cli/index.ts
 ```
 
-## Key Functions
+## Key Modules
 
-When modifying, check these locations:
+| Module | Purpose |
+|--------|---------|
+| `discovery.ts` | Scans all config sources, returns RawDefinition[] |
+| `precedence.ts` | Resolves definitions + states into Server[] |
+| `toggle.ts` | Computes display state and handles state transitions |
+| `state.ts` | Writes changes back to appropriate config files |
+| `store/index.ts` | Zustand store for TUI state management |
 
-| Function | Approx Lines | Purpose |
-|----------|--------------|---------|
-| `discover_and_parse_all_sources()` | ~300 | Discovery orchestrator |
-| `parse_plugin_marketplace_files()` | ~617-695 | Plugin discovery |
-| `toggle_server()` | ~1670-1844 | 3-way toggle logic |
-| `save_changes()` | ~2000-2100 | Atomic save |
+## Testing
 
-## Coding Patterns
-
-### JSON Manipulation
+Automated tests using Vitest:
 
 ```bash
-# Read with jq
-value=$(jq -r '.mcpServers | keys[]' "$file")
-
-# Atomic write
-TMP_FILE=$(mktemp)
-jq '.key = "value"' "$source" > "$TMP_FILE"
-mv "$TMP_FILE" "$target"
+npm test                 # Run all tests
+npm run test:watch       # Watch mode
+npm run test:coverage    # With coverage
 ```
 
-### fzf Error Handling
-
-```bash
-set +e
-result=$(echo "$items" | fzf ...)
-FZF_EXIT=$?
-set -e
-[[ $FZF_EXIT -eq 130 ]] && exit 0  # User cancelled
-```
-
-### State File Format
-
-```
-state:server:scope:file:type:flags
-```
-
-Example: `on:fetch:project:./.mcp.json:mcpjson:`
-
-Flags (optional): `e`=enterprise, `b`=blocked, `r`=restricted
-
-## Testing Notes
-
-No automated tests currently. Manual testing workflow:
-
-1. Create test config files
-2. Run `./mcp`
-3. Toggle servers, verify state file
-4. Save, verify JSON output
-5. Check Claude sees changes
+Test files in `tests/unit/`:
+- `toggle.test.ts` - 3-way toggle logic
+- `precedence.test.ts` - Precedence resolution
+- `enterprise.test.ts` - Enterprise access control
 
 ## Output Destinations
 
-- MCPJSON state -> `./.claude/settings.local.json`
-- Direct server disable -> `~/.claude.json` `.projects[cwd].disabledMcpServers`
-- Plugin state -> `./.claude/settings.local.json` `enabledPlugins`
-
-## Reference Documents
-
-For detailed specs, see:
-
-- `reference/ARCHITECTURE.md` - Function line numbers, data flow, state format
-- `reference/CONFIGURATION.md` - All 12+ config sources, control array details
-- `reference/ENTERPRISE.md` - Enterprise access control, Phase G features
+- MCPJSON state → `./.claude/settings.local.json`
+- Direct server disable → `~/.claude.json` `.projects[cwd].disabledMcpServers`
+- Plugin state → `./.claude/settings.local.json` `enabledPlugins`

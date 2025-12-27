@@ -81,14 +81,38 @@ export async function saveServerStates(
   // Build enabledPlugins object
   // CRITICAL: Only set to true, never to false (false hides plugin from UI)
   // Disabled plugins should be omitted, not set to false
+  //
+  // Key format: pluginName@marketplace (NOT serverKey:pluginName@marketplace)
   const enabledPlugins: Record<string, boolean> = {};
 
+  // Helper to extract plugin key from server name
+  // Server format: serverKey:pluginName@marketplace
+  // Plugin key format: pluginName@marketplace
+  const getPluginKey = (serverName: string): string | null => {
+    const colonIdx = serverName.indexOf(':');
+    const atIdx = serverName.indexOf('@');
+    if (colonIdx !== -1 && atIdx > colonIdx) {
+      return serverName.substring(colonIdx + 1);
+    }
+    return null;
+  };
+
+  // Track which plugins we've processed to handle multiple servers per plugin
+  const processedPlugins = new Set<string>();
+
   for (const server of pluginServers) {
+    const pluginKey = getPluginKey(server.name);
+    if (!pluginKey) continue;
+
+    // Skip if we've already processed this plugin
+    if (processedPlugins.has(pluginKey)) continue;
+
     const displayState = getDisplayState(server);
 
     // Only add enabled plugins, omit disabled ones
     if (displayState === 'green' || displayState === 'orange') {
-      enabledPlugins[server.name] = true;
+      enabledPlugins[pluginKey] = true;
+      processedPlugins.add(pluginKey);
     }
     // For 'red' state, we intentionally omit the plugin (don't set to false)
   }

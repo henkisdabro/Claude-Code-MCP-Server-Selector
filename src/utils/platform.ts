@@ -4,7 +4,7 @@
  * Handles OS detection and platform-specific paths.
  */
 
-import { homedir, platform } from 'node:os';
+import { homedir, platform, release } from 'node:os';
 import { join } from 'node:path';
 
 export type Platform = 'linux' | 'macos' | 'windows' | 'wsl';
@@ -20,13 +20,9 @@ export function detectPlatform(): Platform {
 
   // Check for WSL
   if (os === 'linux') {
-    try {
-      const release = require('node:os').release().toLowerCase();
-      if (release.includes('microsoft') || release.includes('wsl')) {
-        return 'wsl';
-      }
-    } catch {
-      // Ignore errors, default to linux
+    const osRelease = release().toLowerCase();
+    if (osRelease.includes('microsoft') || osRelease.includes('wsl')) {
+      return 'wsl';
     }
     return 'linux';
   }

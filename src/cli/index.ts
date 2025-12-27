@@ -175,5 +175,13 @@ program
     await runListAvailable(options);
   });
 
+program
+  .command('compare')
+  .description('Compare discovered servers with Claude Code /mcp list')
+  .action(async () => {
+    const { runCompare } = await import('./commands/compare.js');
+    await runCompare();
+  });
+
 // Parse and execute
 program.parse();

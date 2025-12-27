@@ -152,6 +152,7 @@ install_mcp_selector() {
     echo -e "  • ${COLOUR_GREEN}SPACE${COLOUR_RESET}   - Toggle server (3-way: on/paused/off)"
     echo -e "  • ${COLOUR_GREEN}ENTER${COLOUR_RESET}   - Save and exit"
     echo -e "  • ${COLOUR_GREEN}ESC${COLOUR_RESET}     - Cancel without saving"
+    echo -e "  • ${COLOUR_GREEN}i${COLOUR_RESET}       - Install new plugin from marketplace"
     echo -e "  • ${COLOUR_GREEN}ALT-E${COLOUR_RESET}   - Enable all servers"
     echo -e "  • ${COLOUR_GREEN}ALT-D${COLOUR_RESET}   - Disable all servers"
     echo ""
