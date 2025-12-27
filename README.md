@@ -1,12 +1,15 @@
 # Claude Code MCP Server Selector
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey.svg)]()
-[![Shell](https://img.shields.io/badge/Shell-Bash-green.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
+[![npm](https://img.shields.io/npm/v/@henkisdabro/mcp-selector.svg)](https://www.npmjs.com/package/@henkisdabro/mcp-selector)
+[![Node](https://img.shields.io/badge/Node.js-20+-green.svg)]()
 
 **[🌐 Visit Website](https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/)** | **[📖 Documentation](#readme)** | **[⚡ Quick Start](#quick-start)**
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
+
+> **v2.0.1**: Now a Node.js/npm package with React Ink TUI! New features include plugin installation from marketplace, improved plugin discovery, and cross-platform support.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 
@@ -32,30 +35,40 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 
 ## Features
 
-- **Context Window Optimization** - Enable only the MCP servers you need, minimize token waste
+- **Context Window Optimization** - Enable only the MCP servers you need, minimise token waste
 - **3-Way Toggle Cycle** - Cycle servers through RED (off) → GREEN (on) → ORANGE (available but disabled)
-- **Interactive TUI** - Fast, intuitive interface powered by fzf (<1 second startup)
+- **Interactive TUI** - Fast, intuitive React Ink interface (<1 second startup)
 - **Real-time Updates** - Toggle servers instantly with visual feedback
 - **Multi-Source Configuration** - Discovers and merges 12+ configuration sources with scope precedence
-- **Marketplace Plugin Discovery** - Automatically finds ALL plugins with MCP servers
-- **CLI Subcommands** - `mcp enable/disable` for scriptable server control **(NEW v2.0)**
-- **Integration Commands** - `--export-disabled`, `--sync-check`, `--context-report` for automation **(NEW v2.0)**
-- **Session Awareness** - Detects running inside Claude session and warns appropriately **(NEW v2.0)**
-- **Enterprise Support** - 🏢 Centralized MCP deployment with allowlist/denylist/command/URL matching **(Enhanced v2.1)**
+- **Marketplace Plugin Discovery** - Automatically finds ALL plugins with MCP servers from installed_plugins.json
+- **Plugin Installation** - Install plugins from marketplace directly in the TUI **(NEW v2.0)**
+- **CLI Subcommands** - `mcp enable/disable` for scriptable server control
+- **Plugin Management** - `mcp install/uninstall/list-available` for marketplace plugins **(NEW v2.0)**
+- **Integration Commands** - `export-disabled`, `sync-check`, `context-report` for automation
+- **Session Awareness** - Detects running inside Claude session and warns appropriately
+- **Enterprise Support** - 🏢 Centralised MCP deployment with allowlist/denylist/command/URL matching
 - **Smart Migration** - Automatically migrate global servers to project-level control
 - **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
-- **Cross-Platform** - Works on Linux and macOS out of the box
-- **Zero Dependencies** - Just bash, fzf, and jq (easy to install)
+- **Cross-Platform** - Works on Linux, macOS, and Windows
+- **npm Package** - Simple installation via npm/npx, Node.js 20+ required
 
 ## Quick Start
 
 ### Installation
 
-One-line install (recommended):
+**Via npm (recommended):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install.sh | bash
+npm install -g @henkisdabro/mcp-selector
 ```
+
+**Or run directly with npx:**
+
+```bash
+npx @henkisdabro/mcp-selector
+```
+
+**Requirements:** Node.js 20 or later
 
 ### Usage
 
@@ -111,7 +124,26 @@ mcp disable fetch --quiet     # Silent operation (exit code only)
 - `--quiet` / `-q` - Suppress all output (use exit code)
 - `--all` - Apply to all discovered servers
 
-### Integration Commands (NEW v2.0)
+### Plugin Management (NEW v2.0)
+
+Install and manage plugins from the marketplace:
+
+```bash
+# List available plugins not yet installed
+mcp list-available              # Show all uninstalled plugins
+mcp list-available --mcp-only   # Only show plugins with MCP servers
+
+# Install a plugin
+mcp install developer-toolkit@wookstar-claude-code-plugins
+mcp install finance-toolkit@wookstar-claude-code-plugins --copy  # Copy to cache
+
+# Uninstall a plugin
+mcp uninstall developer-toolkit@wookstar-claude-code-plugins
+```
+
+**In the TUI:** Press `i` to open the install dialog and select from available plugins.
+
+### Integration Commands
 
 Commands designed for scripting, hooks, and automation:
 
@@ -136,14 +168,14 @@ mcp --context-report          # Show estimated token usage per server
 | Key | Action |
 |-----|--------|
 | `SPACE` | **3-way toggle**: RED (off) → GREEN (on) → ORANGE (runtime-disabled) → RED |
+| `i` | Install plugin from marketplace **(NEW v2.0)** |
 | `ALT-M` | Migrate Direct server to project (full ownership) |
 | `ENTER` | Save changes and launch Claude |
 | `ESC` | Cancel without saving |
-| `CTRL-A` | Add new server |
 | `CTRL-X` | Remove selected server |
 | `ALT-E` | Enable all servers |
 | `ALT-D` | Disable all servers |
-| `↑/↓` or `/` | Navigate and filter |
+| `j/k` or `↑/↓` | Navigate up/down |
 
 ### UI Indicators
 
@@ -340,7 +372,7 @@ Control which MCP servers users can enable via allowlists and denylists:
 - **Undefined allowlist** - No restrictions (allow all servers)
 - **Invalid JSON** - Automatic lockdown mode (fail-safe security)
 
-### Advanced Restriction Matching (NEW v2.1)
+### Advanced Restriction Matching (NEW v2.0)
 
 Beyond simple server name matching, enterprises can restrict servers by command or URL patterns:
 
@@ -454,82 +486,67 @@ Result:  DISABLED for this project, enabled globally elsewhere
 
 ### Prerequisites
 
-The tool requires three lightweight dependencies:
+- **Node.js** 20.0 or later
 
-- **bash** 4.0+ (usually pre-installed)
-- **fzf** 0.20+ (command-line fuzzy finder)
-- **jq** 1.6+ (JSON processor)
-
-### One-Line Install
+### npm Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install.sh | bash
+npm install -g @henkisdabro/mcp-selector
 ```
 
-The installer will:
+This will install `mcp` and `claudemcp` commands globally.
 
-- Check for dependencies and offer to install them
-- Clone the repository to `~/.config/mcp-selector`
-- Create symlinks in `~/.local/bin/`
-- Add `~/.local/bin` to your PATH if needed
+### npx (No Installation)
 
-### Manual Install
+Run directly without installing:
+
+```bash
+npx @henkisdabro/mcp-selector
+```
+
+### Development Install
 
 ```bash
 # Clone the repository
-git clone https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector.git ~/.config/mcp-selector
+git clone https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector.git
+cd Claude-Code-MCP-Server-Selector
 
-# Create symlinks
-ln -s ~/.config/mcp-selector/mcp ~/.local/bin/mcp
-ln -s ~/.config/mcp-selector/mcp ~/.local/bin/claudemcp
+# Install dependencies
+npm install
 
-# Make executable
-chmod +x ~/.config/mcp-selector/mcp
+# Run in development mode
+npm run dev
+
+# Build for production
+npm run build
 ```
 
-### Installing Dependencies
+### Upgrading from v1.x (Bash Version)
 
-**Ubuntu/Debian:**
+If you previously installed the bash-based version, you should remove it before installing the npm version to avoid conflicts:
 
 ```bash
-sudo apt update && sudo apt install fzf jq
+# Check if old bash script exists
+which mcp
+
+# If it points to ~/.local/bin/mcp or similar (not an npm path), remove it:
+rm ~/.local/bin/mcp ~/.local/bin/claudemcp 2>/dev/null
+
+# Then install the new version
+npm install -g @henkisdabro/mcp-selector
 ```
 
-**macOS:**
+**Alternatively**, use the install script which handles migration automatically:
 
 ```bash
-brew install fzf jq
+curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install-npm.sh | bash
 ```
 
-**Fedora/RHEL:**
-
-```bash
-sudo dnf install fzf jq
-```
-
-**Arch Linux:**
-
-```bash
-sudo pacman -S fzf jq
-```
-
-**Alpine Linux:**
-
-```bash
-sudo apk add fzf jq
-```
-
-**openSUSE:**
-
-```bash
-sudo zypper install fzf jq
-```
-
-**NixOS:**
-
-```bash
-nix-env -iA nixpkgs.fzf nixpkgs.jq
-```
+The install script will:
+- Detect old bash-based installations
+- Prompt to remove them (or auto-remove in CI with `MCP_INSTALL_NONINTERACTIVE=1`)
+- Clean up old temporary state files
+- Install the new npm package
 
 ## How It Works
 
@@ -800,47 +817,35 @@ This tool is designed primarily for individual developers and teams managing the
 To completely remove Claude Code MCP Server Selector:
 
 ```bash
-# Remove symlinks
-rm ~/.local/bin/mcp ~/.local/bin/claudemcp
-
-# Remove repository
-rm -rf ~/.config/mcp-selector
+npm uninstall -g @henkisdabro/mcp-selector
 ```
 
 Your Claude configuration files (`.claude/settings.json`) will not be affected.
 
 ## Troubleshooting
 
-### Dependencies not found
+### Node.js version too old
 
-The installer will detect your package manager and provide installation instructions. See the [Installing Dependencies](#installing-dependencies) section above.
-
-### $HOME/.local/bin not in PATH
-
-The installer will offer to automatically add `~/.local/bin` to your PATH. If you declined or need to do it manually:
-
-**Bash/Zsh:**
+This tool requires Node.js 20 or later. Check your version:
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc  # or ~/.zshrc
-source ~/.bashrc  # or source ~/.zshrc
+node --version
 ```
 
-**Fish:**
+If you need to update, use a version manager like nvm or fnm, or download from [nodejs.org](https://nodejs.org/).
+
+### Command not found after global install
+
+Ensure npm's global bin directory is in your PATH:
 
 ```bash
-echo 'set -gx PATH "$HOME/.local/bin" $PATH' >> ~/.config/fish/config.fish
-source ~/.config/fish/config.fish
+npm config get prefix
+# Add {prefix}/bin to your PATH
 ```
 
 ### Can't find claude binary
 
-The tool looks for Claude in:
-
-1. `~/.local/bin/claude` (symlink)
-2. Output of `command -v claude`
-
-Make sure Claude Code is properly installed.
+The tool looks for Claude via `command -v claude`. Make sure Claude Code CLI is properly installed.
 
 ### Direct servers from ~/.claude.json
 
@@ -891,38 +896,43 @@ After saving changes with `ENTER`:
 
 ```
 Claude-Code-MCP-Server-Selector/
-├── mcp                            # Main executable (~5000 lines bash)
-├── install.sh                     # Installation script
-├── README.md                      # User documentation
-├── KNOWN_BUGS.md                  # Known Claude MCP bugs and workarounds
-├── .claude/CLAUDE.md              # Claude Code session guidance
-├── tests/                         # Test suite
-│   └── unit/                      # Unit tests (bats)
-│       └── test_commands.bats     # CLI command tests
+├── src/
+│   ├── cli/                       # CLI entry point and commands
+│   │   ├── index.ts               # Main CLI with Commander
+│   │   └── commands/              # Subcommand implementations
+│   ├── tui/                       # React Ink TUI
+│   │   ├── App.tsx                # Main TUI application
+│   │   ├── components/            # UI components
+│   │   ├── hooks/                 # React hooks (key bindings, etc.)
+│   │   └── store/                 # Zustand state management
+│   ├── core/                      # Core business logic
+│   │   ├── config/                # Configuration parsing and writing
+│   │   ├── plugins/               # Plugin installation logic
+│   │   └── servers/               # Server toggle logic
+│   ├── types/                     # TypeScript type definitions
+│   └── utils/                     # Platform utilities
+├── package.json                   # npm package configuration
+├── tsconfig.json                  # TypeScript configuration
 └── reference/                     # Technical reference docs
     ├── ARCHITECTURE.md            # Function references, data flow
     ├── CONFIGURATION.md           # Config sources, control arrays
     └── ENTERPRISE.md              # Enterprise features
 ```
 
-### Testing
-
-Create a test settings file:
+### Development Commands
 
 ```bash
-mkdir -p ./.claude
-cat > ./.claude/settings.local.json <<'EOF'
-{
-  "enabledMcpjsonServers": ["fetch", "time"],
-  "disabledMcpjsonServers": ["notion", "playwright"]
-}
-EOF
-```
+# Run in development mode (with hot reload)
+npm run dev
 
-Run the tool:
+# Type check
+npm run typecheck
 
-```bash
-./mcp
+# Run tests
+npm test
+
+# Build for production
+npm run build
 ```
 
 ### Design Principles
@@ -930,8 +940,8 @@ Run the tool:
 1. **Speed** - Sub-second launch, instant interactions
 2. **Safety** - Atomic writes, validation, never corrupt configs
 3. **Clarity** - Always show current vs pending state
-4. **Portability** - Works on Linux + macOS without modification
-5. **Explicitness** - Prompt before creating or modifying configurations
+4. **Cross-Platform** - Works on Linux, macOS, and Windows
+5. **Type Safety** - Full TypeScript with strict mode
 
 ## Quick Reference
 
@@ -1009,8 +1019,8 @@ Built by [Henrik Söderlund](https://www.henriksoderlund.com) for the Claude Cod
 
 Powered by:
 
-- [fzf](https://github.com/junegunn/fzf) - Command-line fuzzy finder
-- [jq](https://stedolan.github.io/jq/) - JSON processor
+- [React Ink](https://github.com/vadimdemedes/ink) - React for CLI
+- [Node.js](https://nodejs.org/) - JavaScript runtime
 
 ## License
 
