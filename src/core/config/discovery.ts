@@ -21,6 +21,7 @@ import {
   getProjectSettingsPath,
   getProjectMcpJsonPath,
   getMarketplacesDir,
+  getInstalledPluginsPath,
 } from '@/utils/platform.js';
 import { isValidPluginPath } from '@/utils/paths.js';
 import { basename, dirname } from 'node:path';
@@ -30,6 +31,7 @@ import {
   parseSettingsJson,
   parseEnterpriseMcp,
   parseMarketplaceJson,
+  parseInstalledPlugins,
 } from './parser.js';
 
 /**
@@ -119,7 +121,17 @@ export async function discoverAllSources(cwd: string): Promise<ConfigSource[]> {
     type: 'claude',
   });
 
-  // Plugin sources - find marketplace.json files
+  // Installed plugins (PRIMARY source - what Claude actually uses)
+  // Structure: ~/.claude/plugins/installed_plugins.json
+  const installedPluginsPath = getInstalledPluginsPath();
+  sources.push({
+    path: installedPluginsPath,
+    scope: 'user',
+    exists: existsSync(installedPluginsPath),
+    type: 'installed-plugins',
+  });
+
+  // Plugin sources - find marketplace.json files (FALLBACK for discovery)
   // Structure: ~/.claude/plugins/marketplaces/{MARKETPLACE}/.claude-plugin/marketplace.json
   const marketplacesDir = getMarketplacesDir();
   if (existsSync(marketplacesDir)) {
@@ -160,6 +172,9 @@ export async function extractRawDefinitions(
   const definitions: RawDefinition[] = [];
   const sources = await discoverAllSources(cwd);
 
+  // Track seen plugin servers to avoid duplicates between installed_plugins and marketplace
+  const seenPluginServers = new Set<string>();
+
   for (const source of sources) {
     if (!source.exists) continue;
 
@@ -177,9 +192,28 @@ export async function extractRawDefinitions(
         case 'claude':
           definitions.push(...(await extractFromClaudeJson(source, cwd)));
           break;
-        case 'plugin':
-          definitions.push(...(await extractFromPlugin(source)));
+        case 'installed-plugins': {
+          const pluginDefs = await extractFromInstalledPlugins(source);
+          // Track these servers so marketplace discovery skips them
+          for (const def of pluginDefs) {
+            if (def.type === 'def') {
+              seenPluginServers.add(def.server);
+            }
+          }
+          definitions.push(...pluginDefs);
           break;
+        }
+        case 'plugin': {
+          // Only add servers not already found from installed_plugins
+          const marketplaceDefs = await extractFromPlugin(source);
+          for (const def of marketplaceDefs) {
+            if (def.type === 'def' && seenPluginServers.has(def.server)) {
+              continue; // Skip duplicate
+            }
+            definitions.push(def);
+          }
+          break;
+        }
       }
     } catch (error) {
       console.error(`Warning: Failed to parse ${source.path}:`, error);
@@ -311,10 +345,14 @@ async function extractFromClaudeJson(
   }
 
   // Root-level disabledMcpServers (user scope)
+  // Use 'runtime-disable' type: these only affect runtime status, not config state
+  // Note: Plugin entries use format "plugin:pluginName:serverKey"
+  // We need to convert to our internal format for matching
   if (data.disabledMcpServers) {
     for (const name of data.disabledMcpServers) {
+      // Store raw name - the precedence resolver will handle matching
       definitions.push({
-        type: 'disable',
+        type: 'runtime-disable',
         server: name,
         scope: 'user',
         file: source.path,
@@ -343,10 +381,11 @@ async function extractFromClaudeJson(
       }
 
       // Project-specific disabledMcpServers (local scope)
+      // Use 'runtime-disable' type: these only affect runtime status, not config state
       if (projectEntry.disabledMcpServers) {
         for (const name of projectEntry.disabledMcpServers) {
           definitions.push({
-            type: 'disable',
+            type: 'runtime-disable',
             server: name,
             scope: 'local',
             file: source.path,
@@ -383,13 +422,95 @@ async function extractFromClaudeJson(
 }
 
 /**
+ * Extract definitions from installed_plugins.json
+ *
+ * This is the PRIMARY source for plugin discovery - it's what Claude actually uses.
+ * Format: plugin-name@marketplace -> installPath/.mcp.json
+ *
+ * Server name format: {serverKey}:{pluginName}@{marketplace}
+ *
+ * Checks for MCP servers in order:
+ * 1. Cache installPath/.mcp.json
+ * 2. Marketplace {plugin-source}/.mcp.json
+ */
+async function extractFromInstalledPlugins(source: ConfigSource): Promise<RawDefinition[]> {
+  const definitions: RawDefinition[] = [];
+
+  const data = await parseInstalledPlugins(source.path);
+  if (!data?.plugins) return definitions;
+
+  // Track which servers we've seen to avoid duplicates
+  const seenServers = new Set<string>();
+  const marketplacesDir = getMarketplacesDir();
+
+  for (const [pluginFullName, installations] of Object.entries(data.plugins)) {
+    // pluginFullName format: "plugin-name@marketplace"
+    const atIdx = pluginFullName.indexOf('@');
+    if (atIdx === -1) continue;
+
+    const pluginName = pluginFullName.substring(0, atIdx);
+    const marketplace = pluginFullName.substring(atIdx + 1);
+
+    // Get the first (most recent) installation
+    const install = installations[0];
+    if (!install?.installPath) continue;
+
+    // Try to find .mcp.json from multiple locations
+    let mcpFilePath: string | null = null;
+    let mcpData: { mcpServers?: Record<string, unknown> } | null = null;
+
+    // 1. Check cache installPath
+    const cacheMcpPath = join(install.installPath, '.mcp.json');
+    if (existsSync(cacheMcpPath)) {
+      mcpFilePath = cacheMcpPath;
+      mcpData = await parseMcpJson(cacheMcpPath);
+    }
+
+    // 2. Fallback to marketplace directory
+    if (!mcpData?.mcpServers) {
+      const marketplaceMcpPath = join(marketplacesDir, marketplace, pluginName, '.mcp.json');
+      if (existsSync(marketplaceMcpPath)) {
+        mcpFilePath = marketplaceMcpPath;
+        mcpData = await parseMcpJson(marketplaceMcpPath);
+      }
+    }
+
+    if (!mcpData?.mcpServers || !mcpFilePath) continue;
+
+    // Add each server from the .mcp.json
+    for (const [serverKey, def] of Object.entries(mcpData.mcpServers)) {
+      const fullName = `${serverKey}:${pluginName}@${marketplace}`;
+
+      // Skip if we've already seen this server
+      if (seenServers.has(fullName)) continue;
+      seenServers.add(fullName);
+
+      definitions.push({
+        type: 'def',
+        server: fullName,
+        scope: 'user',
+        file: mcpFilePath,
+        sourceType: 'plugin',
+        definition: def as Record<string, unknown>,
+      });
+    }
+  }
+
+  return definitions;
+}
+
+/**
  * Extract definitions from marketplace plugins
  *
- * Matches bash script's parse_plugin_marketplace_files() logic:
- * 1. Source path is marketplace.json: ~/.claude/plugins/marketplaces/{MARKETPLACE}/.claude-plugin/marketplace.json
- * 2. Marketplace base is parent of .claude-plugin: ~/.claude/plugins/marketplaces/{MARKETPLACE}
- * 3. For each plugin in .plugins[], construct: {marketplace_base}/{source}/.mcp.json
- * 4. Plugin name format: plugin-name@marketplace
+ * Creates an entry for EACH MCP server within plugins.
+ * Server name format: {serverKey}:{pluginName}@{marketplace}
+ *
+ * This matches Claude's naming convention: plugin:{pluginName}:{serverKey}
+ *
+ * Sources checked:
+ * 1. Root-level mcpServers in marketplace.json (serverKey only, no pluginName)
+ * 2. Plugin .source path + .mcp.json file
+ * 3. Inline mcpServers in plugin definition
  */
 async function extractFromPlugin(source: ConfigSource): Promise<RawDefinition[]> {
   const definitions: RawDefinition[] = [];
@@ -404,22 +525,34 @@ async function extractFromPlugin(source: ConfigSource): Promise<RawDefinition[]>
   const marketplaceBase = dirname(claudePluginDir); // {MARKETPLACE} directory
   const marketplaceName = basename(marketplaceBase);
 
-  // FIRST: Check for root-level mcpServers in marketplace.json itself
-  if (data.mcpServers) {
-    for (const [serverName, def] of Object.entries(data.mcpServers)) {
-      const fullName = `${serverName}@${marketplaceName}`;
+  // Helper to add all servers from an mcpServers object
+  const addServers = (
+    mcpServers: Record<string, unknown>,
+    pluginName: string | null,
+    file: string
+  ) => {
+    for (const [serverKey, def] of Object.entries(mcpServers)) {
+      // Format: serverKey:pluginName@marketplace or serverKey@marketplace (if no plugin)
+      const fullName = pluginName
+        ? `${serverKey}:${pluginName}@${marketplaceName}`
+        : `${serverKey}@${marketplaceName}`;
       definitions.push({
         type: 'def',
         server: fullName,
         scope: 'user',
-        file: source.path,
+        file,
         sourceType: 'plugin',
-        definition: def,
+        definition: def as Record<string, unknown>,
       });
     }
+  };
+
+  // FIRST: Check for root-level mcpServers in marketplace.json itself
+  if (data.mcpServers) {
+    addServers(data.mcpServers, null, source.path);
   }
 
-  // SECOND: For each plugin in .plugins[], check if {source}/.mcp.json exists
+  // SECOND: Process each plugin in .plugins[]
   if (data.plugins) {
     for (const plugin of data.plugins) {
       const pluginName = plugin.name;
@@ -427,73 +560,22 @@ async function extractFromPlugin(source: ConfigSource): Promise<RawDefinition[]>
 
       if (!pluginName) continue;
 
-      // Skip plugins without a source path
-      if (!pluginSource || typeof pluginSource !== 'string') continue;
-
-      // Security: Validate source path (prevent path traversal)
-      if (!isValidPluginPath(pluginSource)) {
-        continue;
-      }
-
-      // Construct path to .mcp.json using .source field
-      const mcpFilePath = join(marketplaceBase, pluginSource, '.mcp.json');
-
-      // Check if .mcp.json exists for this plugin
-      if (!existsSync(mcpFilePath)) continue;
-
-      // Parse the .mcp.json file
-      const mcpData = await parseMcpJson(mcpFilePath);
-      if (!mcpData?.mcpServers) continue;
-
-      // Output using PLUGIN NAME (not server names from .mcp.json)
-      // Format: plugin-name@marketplace
-      // This ensures compatibility with enabledPlugins control mechanism
-      const fullName = `${pluginName}@${marketplaceName}`;
-
-      // Use first server definition as the plugin's definition
-      const serverDefs = Object.values(mcpData.mcpServers);
-      if (serverDefs.length > 0) {
-        definitions.push({
-          type: 'def',
-          server: fullName,
-          scope: 'user',
-          file: mcpFilePath,
-          sourceType: 'plugin',
-          definition: serverDefs[0],
-        });
-      }
-
-      // THIRD: Check for plugins with INLINE mcpServers object
-      // Skip if plugin also has a .mcp.json file (already handled above)
-    }
-
-    // Handle plugins with inline mcpServers (no .mcp.json file)
-    for (const plugin of data.plugins) {
-      const pluginName = plugin.name;
-      const pluginSource = plugin.source;
-
-      if (!pluginName) continue;
-
-      // Skip if already handled via .mcp.json
+      // Try to find MCP servers from .source/.mcp.json
+      let foundMcpJson = false;
       if (pluginSource && typeof pluginSource === 'string' && isValidPluginPath(pluginSource)) {
         const mcpFilePath = join(marketplaceBase, pluginSource, '.mcp.json');
-        if (existsSync(mcpFilePath)) continue;
+        if (existsSync(mcpFilePath)) {
+          const mcpData = await parseMcpJson(mcpFilePath);
+          if (mcpData?.mcpServers) {
+            addServers(mcpData.mcpServers, pluginName, mcpFilePath);
+            foundMcpJson = true;
+          }
+        }
       }
 
-      // Check for inline mcpServers object
-      if (plugin.mcpServers && typeof plugin.mcpServers === 'object') {
-        const fullName = `${pluginName}@${marketplaceName}`;
-        const serverDefs = Object.values(plugin.mcpServers);
-        if (serverDefs.length > 0) {
-          definitions.push({
-            type: 'def',
-            server: fullName,
-            scope: 'user',
-            file: source.path,
-            sourceType: 'plugin',
-            definition: serverDefs[0],
-          });
-        }
+      // If no .mcp.json, check for inline mcpServers in plugin definition
+      if (!foundMcpJson && plugin.mcpServers && typeof plugin.mcpServers === 'object') {
+        addServers(plugin.mcpServers as Record<string, unknown>, pluginName, source.path);
       }
     }
   }

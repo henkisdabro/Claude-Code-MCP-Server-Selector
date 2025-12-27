@@ -16,7 +16,7 @@ import {
   getDisplayState,
 } from '@/core/servers/toggle.js';
 
-export type TuiMode = 'list' | 'add' | 'confirm-delete' | 'confirm-hard-disable' | 'migrate';
+export type TuiMode = 'list' | 'add' | 'install' | 'confirm-delete' | 'confirm-hard-disable' | 'migrate';
 
 interface TuiState {
   // Data
@@ -49,6 +49,7 @@ interface TuiState {
   removeServer: (name: string) => void;
   hardDisablePlugin: (name: string) => void;
   migrateServer: (cwd: string) => Promise<boolean>;
+  installPlugin: (pluginName: string, marketplace: string, cwd: string) => Promise<boolean>;
   refreshRuntimeStatus: () => Promise<void>;
   save: (cwd: string) => Promise<boolean>;
 
@@ -270,6 +271,42 @@ export const useTuiStore = create<TuiState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Migration failed',
         mode: 'list',
         confirmTarget: null,
+      });
+      return false;
+    }
+  },
+
+  // Install plugin from marketplace
+  installPlugin: async (pluginName: string, marketplace: string, cwd: string) => {
+    try {
+      const { installPlugin } = await import('@/core/plugins/install.js');
+
+      const result = await installPlugin(pluginName, marketplace);
+
+      if (!result.success) {
+        set({
+          error: result.error || 'Installation failed',
+          mode: 'list',
+        });
+        return false;
+      }
+
+      // Reload servers to pick up the newly installed plugin
+      const rawData = await extractRawDefinitions(cwd);
+      const servers = resolveServers(rawData);
+
+      set({
+        servers,
+        originalServers: JSON.parse(JSON.stringify(servers)),
+        mode: 'list',
+        dirty: false,
+      });
+
+      return true;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Installation failed',
+        mode: 'list',
       });
       return false;
     }

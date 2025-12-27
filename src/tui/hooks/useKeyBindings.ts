@@ -24,9 +24,10 @@ interface KeyBindingHandlers {
   onEnableAll: () => void;
   onDisableAll: () => void;
 
-  // Add/Remove
+  // Add/Remove/Install
   onAdd: () => void;
   onRemove: () => void;
+  onInstall: () => void;
 
   // Refresh
   onRefresh: () => void;
@@ -69,6 +70,12 @@ export function useKeyBindings(handlers: KeyBindingHandlers): void {
     }
     if (input === 'j') {
       handlers.onMoveDown();
+      return;
+    }
+
+    // Install with 'i' (matches Claude Code keybinding)
+    if (input === 'i') {
+      handlers.onInstall();
       return;
     }
 

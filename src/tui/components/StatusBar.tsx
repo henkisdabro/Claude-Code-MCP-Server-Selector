@@ -19,11 +19,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({ filter }) => {
         <Text dimColor>
           <Text color={colors.cyan}>SPACE</Text>:Toggle
           <Text> │ </Text>
+          <Text color={colors.cyan}>i</Text>:Install
+          <Text> │ </Text>
           <Text color={colors.cyan}>ALT-M</Text>:Migrate
           <Text> │ </Text>
           <Text color={colors.cyan}>ALT-H</Text>:Hard-Disable
-          <Text> │ </Text>
-          <Text color={colors.cyan}>CTRL-A</Text>:Add
           <Text> │ </Text>
           <Text color={colors.cyan}>CTRL-X</Text>:Delete
         </Text>

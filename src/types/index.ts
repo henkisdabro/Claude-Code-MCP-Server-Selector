@@ -176,6 +176,23 @@ export interface MarketplaceSchema {
   mcpServers?: Record<string, ServerDefinition>;
 }
 
+/** Installed plugins file (~/.claude/plugins/installed_plugins.json) */
+export interface InstalledPluginsSchema {
+  version?: number;
+  plugins?: Record<string, InstalledPluginEntry[]>;
+}
+
+/** Entry in installed_plugins.json */
+export interface InstalledPluginEntry {
+  scope: 'user' | 'project';
+  installPath: string;
+  version?: string;
+  installedAt?: string;
+  lastUpdated?: string;
+  gitCommitSha?: string;
+  isLocal?: boolean;
+}
+
 // ============================================================================
 // Internal State Types
 // ============================================================================
@@ -189,12 +206,12 @@ export interface ConfigSource {
   /** Whether the file exists */
   exists: boolean;
   /** Type of configuration file */
-  type: 'settings' | 'mcp' | 'claude' | 'enterprise' | 'plugin';
+  type: 'settings' | 'mcp' | 'claude' | 'enterprise' | 'plugin' | 'installed-plugins';
 }
 
 /** Raw definition before precedence resolution */
 export interface RawDefinition {
-  type: 'def' | 'enable' | 'disable' | 'disable-plugin';
+  type: 'def' | 'enable' | 'disable' | 'disable-plugin' | 'runtime-disable';
   server: string;
   scope: Scope;
   file: string;

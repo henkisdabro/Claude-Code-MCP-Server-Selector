@@ -148,5 +148,32 @@ program
     await runRollback();
   });
 
+// Plugin management commands
+program
+  .command('install <plugin>')
+  .description('Install a plugin from marketplace (e.g., "developer-toolkit@wookstar-claude-code-plugins")')
+  .option('--copy', 'Copy plugin to cache directory instead of using marketplace path')
+  .action(async (plugin, options) => {
+    const { runInstallPlugin } = await import('./commands/install-plugin.js');
+    await runInstallPlugin(plugin, options);
+  });
+
+program
+  .command('uninstall <plugin>')
+  .description('Uninstall a plugin (remove from installed_plugins.json)')
+  .action(async (plugin) => {
+    const { runUninstallPlugin } = await import('./commands/uninstall-plugin.js');
+    await runUninstallPlugin(plugin);
+  });
+
+program
+  .command('list-available')
+  .description('List plugins available in marketplace but not installed')
+  .option('--mcp-only', 'Only show plugins with MCP servers')
+  .action(async (options) => {
+    const { runListAvailable } = await import('./commands/list-available.js');
+    await runListAvailable(options);
+  });
+
 // Parse and execute
 program.parse();

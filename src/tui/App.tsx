@@ -12,6 +12,7 @@ import { Preview } from './components/Preview.js';
 import { StatusBar } from './components/StatusBar.js';
 import { ConfirmDialog } from './components/ConfirmDialog.js';
 import { InputDialog } from './components/InputDialog.js';
+import { InstallDialog } from './components/InstallDialog.js';
 import { MigrateDialog } from './components/MigrateDialog.js';
 import { useKeyBindings } from './hooks/useKeyBindings.js';
 import { useTuiStore } from './store/index.js';
@@ -49,6 +50,7 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
     removeServer,
     hardDisablePlugin,
     migrateServer,
+    installPlugin,
     refreshRuntimeStatus,
     save,
     getFilteredServers,
@@ -89,6 +91,7 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
     onEnableAll: enableAll,
     onDisableAll: disableAll,
     onAdd: () => setMode('add'),
+    onInstall: () => setMode('install'),
     onRemove: () => {
       const selected = getSelectedServer();
       if (selected && !selected.flags.enterprise) {
@@ -195,6 +198,16 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
               }
               return null;
             }}
+          />
+        );
+
+      case 'install':
+        return (
+          <InstallDialog
+            onInstall={async (pluginName, marketplace) => {
+              await installPlugin(pluginName, marketplace, cwd);
+            }}
+            onCancel={() => setMode('list')}
           />
         );
 

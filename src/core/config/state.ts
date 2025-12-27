@@ -93,19 +93,52 @@ export async function saveServerStates(
     // For 'red' state, we intentionally omit the plugin (don't set to false)
   }
 
-  // Collect servers needing ORANGE state (runtime disable)
-  const orangeServers: string[] = [];
+  // Collect servers needing disabledMcpServers treatment:
+  // - ORANGE: runtime-disabled (enabled in config but paused)
+  // - RED direct servers: fully disabled (direct servers use disabledMcpServers)
+  // - RED plugins: fully disabled (plugins use disabledMcpServers for disable)
+  const disabledMcpServersList: string[] = [];
   for (const server of servers) {
     const displayState = getDisplayState(server);
-    if (displayState === 'orange') {
-      // For plugins, use the "plugin:NAME:KEY" format in disabledMcpServers
-      if (server.sourceType === 'plugin') {
-        // Extract server key from plugin name (e.g., "stripe" from "stripe@marketplace")
-        const serverKey = server.name.split('@')[0];
-        orangeServers.push(`plugin:${serverKey}:${serverKey}`);
+
+    // Helper to get plugin format for disabledMcpServers
+    // Server name format: {serverKey}:{pluginName}@{marketplace} or {serverKey}@{marketplace}
+    // Output format: plugin:{pluginName}:{serverKey}
+    const getPluginDisableFormat = (name: string): string => {
+      const atIdx = name.indexOf('@');
+      if (atIdx === -1) return name;
+
+      const beforeAt = name.substring(0, atIdx);
+      const colonIdx = beforeAt.indexOf(':');
+
+      if (colonIdx !== -1) {
+        // Format: serverKey:pluginName@marketplace
+        const serverKey = beforeAt.substring(0, colonIdx);
+        const pluginName = beforeAt.substring(colonIdx + 1);
+        return `plugin:${pluginName}:${serverKey}`;
       } else {
-        orangeServers.push(server.name);
+        // Format: serverKey@marketplace (root-level server, no plugin name)
+        return `plugin:${beforeAt}:${beforeAt}`;
       }
+    };
+
+    // ORANGE state: any server type that's enabled but runtime-disabled
+    if (displayState === 'orange') {
+      if (server.sourceType === 'plugin') {
+        disabledMcpServersList.push(getPluginDisableFormat(server.name));
+      } else {
+        disabledMcpServersList.push(server.name);
+      }
+    }
+
+    // RED state for direct servers: use disabledMcpServers (their only control mechanism)
+    if (displayState === 'red' && server.sourceType.startsWith('direct')) {
+      disabledMcpServersList.push(server.name);
+    }
+
+    // RED state for plugins: use disabledMcpServers (can't use enabledPlugins=false as it hides UI)
+    if (displayState === 'red' && server.sourceType === 'plugin') {
+      disabledMcpServersList.push(getPluginDisableFormat(server.name));
     }
   }
 
@@ -154,8 +187,8 @@ export async function saveServerStates(
     }
 
     // Update disabledMcpServers for this project
-    claudeJson.projects[cwd].disabledMcpServers = orangeServers.length > 0
-      ? orangeServers
+    claudeJson.projects[cwd].disabledMcpServers = disabledMcpServersList.length > 0
+      ? disabledMcpServersList
       : undefined;
 
     // Write atomically

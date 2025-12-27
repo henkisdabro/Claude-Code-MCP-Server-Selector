@@ -86,23 +86,37 @@ export function resolveServers(
       }
 
       case 'disable': {
+        // Config-level disable (from disabledMcpjsonServers)
         const existing = states.get(item.server);
         if (!existing || priority >= existing.priority) {
-          // Check if this is from disabledMcpServers array
-          // (vs disabledMcpjsonServers)
-          const isFromDisabledMcpServers =
-            item.file.includes('.claude.json') &&
-            !item.file.includes('.mcp.json');
-
-          if (isFromDisabledMcpServers) {
-            disabledMcpServers.add(item.server);
-          }
-
           states.set(item.server, {
             priority,
             state: 'off',
-            inDisabledMcpServers: isFromDisabledMcpServers,
+            inDisabledMcpServers: false,
           });
+        }
+        break;
+      }
+
+      case 'runtime-disable': {
+        // Runtime-level disable (from disabledMcpServers)
+        // This only sets runtime=stopped, doesn't affect config state
+        // Track for later application to runtime status
+        //
+        // Handle both formats:
+        // - plugin:pluginName:serverKey (Claude's format)
+        // - serverKey:pluginName@marketplace (our internal format)
+        // - plain server name (for non-plugin servers)
+        disabledMcpServers.add(item.server);
+
+        // If it's plugin:X:Y format, also add our internal format for matching
+        if (item.server.startsWith('plugin:')) {
+          const parts = item.server.split(':');
+          if (parts.length === 3) {
+            const [, pluginName, serverKey] = parts;
+            // Add pattern that will match: serverKey:pluginName@*
+            disabledMcpServers.add(`${serverKey}:${pluginName}`);
+          }
         }
         break;
       }
@@ -125,16 +139,47 @@ export function resolveServers(
   // Merge definitions with states
   const servers: Server[] = [];
 
+  // Helper to check if a server is in disabledMcpServers
+  // Handles format matching for plugin servers
+  const isInDisabledMcpServers = (serverName: string): boolean => {
+    // Direct match
+    if (disabledMcpServers.has(serverName)) return true;
+
+    // For plugin servers with format: serverKey:pluginName@marketplace
+    // Check if serverKey:pluginName matches (pattern we added during runtime-disable)
+    const atIdx = serverName.indexOf('@');
+    if (atIdx !== -1) {
+      const beforeAt = serverName.substring(0, atIdx);
+      if (disabledMcpServers.has(beforeAt)) return true;
+    }
+
+    return false;
+  };
+
   for (const [name, { def }] of definitions) {
     const stateEntry = states.get(name);
-    const state = stateEntry?.state ?? 'on'; // Default enabled
+    const inDisabled = isInDisabledMcpServers(name);
+
+    // Determine state based on source type and control mechanism
+    let state = stateEntry?.state ?? 'on'; // Default enabled
+
+    // For direct servers, disabledMcpServers is the primary control mechanism
+    // If in disabledMcpServers, they should be disabled (state=off)
+    if (inDisabled && def.sourceType?.startsWith('direct')) {
+      state = 'off';
+    }
+
+    // For plugins without an explicit state entry, disabledMcpServers means full disable
+    // (If they have an enable entry, ORANGE logic applies instead)
+    if (inDisabled && def.sourceType === 'plugin' && !stateEntry) {
+      state = 'off';
+    }
 
     // Determine flags
     const flags = computeFlags(def, enterprisePolicy);
 
     // Determine runtime status
-    // In FAST_MODE, we can only detect ORANGE via disabledMcpServers
-    const inDisabled = disabledMcpServers.has(name);
+    // ORANGE state: enabled in config but runtime-disabled
     const runtime = state === 'on' && inDisabled ? 'stopped' : 'unknown';
 
     servers.push({

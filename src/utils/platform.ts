@@ -130,3 +130,10 @@ export function getMarketplaceDir(): string {
 export function getMarketplacesDir(): string {
   return join(homedir(), '.claude', 'plugins', 'marketplaces');
 }
+
+/**
+ * Get the installed_plugins.json path
+ */
+export function getInstalledPluginsPath(): string {
+  return join(homedir(), '.claude', 'plugins', 'installed_plugins.json');
+}

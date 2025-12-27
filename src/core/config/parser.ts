@@ -13,6 +13,7 @@ import type {
   EnterpriseMcpSchema,
   EnterpriseSettingsSchema,
   MarketplaceSchema,
+  InstalledPluginsSchema,
 } from '@/types/index.js';
 import { expandPath } from '@/utils/paths.js';
 
@@ -79,6 +80,13 @@ export async function parseEnterpriseSettings(path: string): Promise<EnterpriseS
  */
 export async function parseMarketplaceJson(path: string): Promise<MarketplaceSchema | null> {
   return parseJsonFile<MarketplaceSchema>(path);
+}
+
+/**
+ * Parse installed_plugins.json
+ */
+export async function parseInstalledPlugins(path: string): Promise<InstalledPluginsSchema | null> {
+  return parseJsonFile<InstalledPluginsSchema>(path);
 }
 
 /**
