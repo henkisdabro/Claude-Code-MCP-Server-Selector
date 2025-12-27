@@ -3,11 +3,28 @@
  * MCP Server Selector CLI
  *
  * Interactive TUI and CLI commands for managing MCP servers in Claude Code.
+ *
+ * Usage: mcp [OPTIONS] [-- CLAUDE_ARGS...]
+ *
+ * After saving server selections, launches Claude with any passed arguments.
+ * Example: mcp -- --resume
+ * Example: mcp -- --dangerously-skip-permissions
  */
 
 import { Command } from 'commander';
 
 const VERSION = '3.0.0-alpha.1';
+
+// Capture Claude args before Commander parses (everything after --)
+const dashDashIndex = process.argv.indexOf('--');
+const claudeArgs: string[] = dashDashIndex !== -1
+  ? process.argv.slice(dashDashIndex + 1)
+  : [];
+
+// Remove Claude args from process.argv so Commander doesn't see them
+if (dashDashIndex !== -1) {
+  process.argv = process.argv.slice(0, dashDashIndex);
+}
 
 const program = new Command();
 
@@ -22,9 +39,10 @@ program
   .description('Launch interactive TUI (default)')
   .option('--strict-disable', 'Convert ORANGE servers to RED before launching Claude')
   .option('-q, --quiet', 'Suppress non-essential output')
+  .option('--no-launch', 'Do not launch Claude after saving (for testing)')
   .action(async (options) => {
     const { runTui } = await import('./commands/tui.js');
-    await runTui(options);
+    await runTui({ ...options, claudeArgs, launch: options.launch !== false });
   });
 
 // Diagnostic commands

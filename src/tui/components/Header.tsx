@@ -13,27 +13,27 @@ interface HeaderProps {
   dirty: boolean;
 }
 
+// ASCII art logo lines
+const LOGO_LINES = [
+  '███╗   ███╗ ██████╗██████╗     ███████╗███████╗██╗     ███████╗ ██████╗████████╗ ██████╗ ██████╗ ',
+  '████╗ ████║██╔════╝██╔══██╗    ██╔════╝██╔════╝██║     ██╔════╝██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗',
+  '██╔████╔██║██║     ██████╔╝    ███████╗█████╗  ██║     █████╗  ██║        ██║   ██║   ██║██████╔╝',
+  '██║╚██╔╝██║██║     ██╔═══╝     ╚════██║██╔══╝  ██║     ██╔══╝  ██║        ██║   ██║   ██║██╔══██╗',
+  '██║ ╚═╝ ██║╚██████╗██║         ███████║███████╗███████╗███████╗╚██████╗   ██║   ╚██████╔╝██║  ██║',
+  '╚═╝     ╚═╝ ╚═════╝╚═╝         ╚══════╝╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝',
+];
+
 export const Header: React.FC<HeaderProps> = ({ total, enabled, disabled, dirty }) => {
   const percentage = total > 0 ? Math.round((enabled / total) * 100) : 0;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
       {/* ASCII Art Title */}
-      <Box>
-        <Text color={CLAUDE_ORANGE} bold>
-          ╔═══════════════════════════════════════╗
-        </Text>
-      </Box>
-      <Box>
-        <Text color={CLAUDE_ORANGE} bold>
-          ║   MCP Server Selector             v3  ║
-        </Text>
-      </Box>
-      <Box>
-        <Text color={CLAUDE_ORANGE} bold>
-          ╚═══════════════════════════════════════╝
-        </Text>
-      </Box>
+      {LOGO_LINES.map((line, index) => (
+        <Box key={index}>
+          <Text color={CLAUDE_ORANGE}>{line}</Text>
+        </Box>
+      ))}
 
       {/* Stats line */}
       <Box marginTop={1}>

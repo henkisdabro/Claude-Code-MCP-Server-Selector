@@ -123,3 +123,10 @@ export function getProjectMcpJsonPath(cwd: string): string {
 export function getMarketplaceDir(): string {
   return join(homedir(), '.claude', 'plugins');
 }
+
+/**
+ * Get the marketplaces directory (where actual plugin repos are)
+ */
+export function getMarketplacesDir(): string {
+  return join(homedir(), '.claude', 'plugins', 'marketplaces');
+}

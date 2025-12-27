@@ -18,9 +18,10 @@ import { colors } from './styles/colors.js';
 interface AppProps {
   cwd: string;
   strictDisable?: boolean;
+  onSaveComplete?: () => void;
 }
 
-export const App: React.FC<AppProps> = ({ cwd, strictDisable }) => {
+export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) => {
   const { exit } = useApp();
   const { setRawMode } = useStdin();
 
@@ -86,6 +87,7 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable }) => {
     onSave: async () => {
       const success = await save(cwd);
       if (success) {
+        onSaveComplete?.();
         exit();
       }
     },

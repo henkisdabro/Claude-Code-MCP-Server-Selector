@@ -6,10 +6,11 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import type { Server, SettingsSchema } from '@/types/index.js';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import type { Server, SettingsSchema, ClaudeJsonSchema } from '@/types/index.js';
 import { getProjectSettingsPath } from '@/utils/platform.js';
-import { parseSettingsJson } from './parser.js';
+import { parseSettingsJson, parseClaudeJson } from './parser.js';
 import { atomicWriteJson } from './writer.js';
 import { getDisplayState } from '../servers/toggle.js';
 
@@ -19,7 +20,13 @@ import { getDisplayState } from '../servers/toggle.js';
  * MCPJSON servers: Save to .claude/settings.local.json
  * - enabledMcpjsonServers for GREEN servers
  * - disabledMcpjsonServers for RED servers
- * - (ORANGE uses disabledMcpServers in ~/.claude.json)
+ *
+ * Plugin servers: Save to .claude/settings.local.json
+ * - enabledPlugins object with true for enabled, omit for disabled
+ * - CRITICAL: explicit false makes plugin disappear from Claude UI
+ *
+ * ORANGE state: Save to ~/.claude.json
+ * - disabledMcpServers in .projects[cwd] for runtime-disabled servers
  */
 export async function saveServerStates(
   servers: Server[],
@@ -31,6 +38,9 @@ export async function saveServerStates(
   // Group servers by source type
   const mcpjsonServers = servers.filter(
     (s) => s.sourceType === 'mcpjson' && !s.flags.enterprise
+  );
+  const pluginServers = servers.filter(
+    (s) => s.sourceType === 'plugin' && !s.flags.enterprise
   );
 
   // Get current settings
@@ -46,7 +56,7 @@ export async function saveServerStates(
     // Start with empty settings
   }
 
-  // Build new arrays
+  // Build MCPJSON arrays
   const enabledMcpjsonServers: string[] = [];
   const disabledMcpjsonServers: string[] = [];
 
@@ -68,12 +78,46 @@ export async function saveServerStates(
     }
   }
 
+  // Build enabledPlugins object
+  // CRITICAL: Only set to true, never to false (false hides plugin from UI)
+  // Disabled plugins should be omitted, not set to false
+  const enabledPlugins: Record<string, boolean> = {};
+
+  for (const server of pluginServers) {
+    const displayState = getDisplayState(server);
+
+    // Only add enabled plugins, omit disabled ones
+    if (displayState === 'green' || displayState === 'orange') {
+      enabledPlugins[server.name] = true;
+    }
+    // For 'red' state, we intentionally omit the plugin (don't set to false)
+  }
+
+  // Collect servers needing ORANGE state (runtime disable)
+  const orangeServers: string[] = [];
+  for (const server of servers) {
+    const displayState = getDisplayState(server);
+    if (displayState === 'orange') {
+      // For plugins, use the "plugin:NAME:KEY" format in disabledMcpServers
+      if (server.sourceType === 'plugin') {
+        // Extract server key from plugin name (e.g., "stripe" from "stripe@marketplace")
+        const serverKey = server.name.split('@')[0];
+        orangeServers.push(`plugin:${serverKey}:${serverKey}`);
+      } else {
+        orangeServers.push(server.name);
+      }
+    }
+  }
+
   // Update settings
   settings.enabledMcpjsonServers = enabledMcpjsonServers.length > 0
     ? enabledMcpjsonServers
     : undefined;
   settings.disabledMcpjsonServers = disabledMcpjsonServers.length > 0
     ? disabledMcpjsonServers
+    : undefined;
+  settings.enabledPlugins = Object.keys(enabledPlugins).length > 0
+    ? enabledPlugins
     : undefined;
 
   // Ensure directory exists
@@ -82,12 +126,42 @@ export async function saveServerStates(
     mkdirSync(dir, { recursive: true });
   }
 
-  // Write atomically
+  // Write settings atomically
   try {
     atomicWriteJson(settingsPath, settings);
-    saved = mcpjsonServers.length;
+    saved = mcpjsonServers.length + pluginServers.length;
   } catch (error) {
     errors.push(`Failed to write ${settingsPath}: ${error}`);
+  }
+
+  // Update ~/.claude.json for ORANGE state (disabledMcpServers)
+  const claudeJsonPath = join(homedir(), '.claude.json');
+  try {
+    let claudeJson: ClaudeJsonSchema = {};
+    const existing = await parseClaudeJson(claudeJsonPath);
+    if (existing) {
+      claudeJson = existing;
+    }
+
+    // Ensure projects object exists
+    if (!claudeJson.projects) {
+      claudeJson.projects = {};
+    }
+
+    // Ensure project entry exists
+    if (!claudeJson.projects[cwd]) {
+      claudeJson.projects[cwd] = {};
+    }
+
+    // Update disabledMcpServers for this project
+    claudeJson.projects[cwd].disabledMcpServers = orangeServers.length > 0
+      ? orangeServers
+      : undefined;
+
+    // Write atomically
+    atomicWriteJson(claudeJsonPath, claudeJson);
+  } catch (error) {
+    errors.push(`Failed to update ${claudeJsonPath}: ${error}`);
   }
 
   return { saved, errors };
