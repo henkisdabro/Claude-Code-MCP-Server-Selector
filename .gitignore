@@ -1,6 +1,26 @@
+# MCP Launcher specific
 .mcp_migrations
 *.local.json
 .mcp.json
 marketing/
 .env
 title.txt
+
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage/
+*.log
