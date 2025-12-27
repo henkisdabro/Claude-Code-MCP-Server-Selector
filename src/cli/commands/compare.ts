@@ -87,9 +87,10 @@ export async function runCompare(): Promise<void> {
   const rawData = await extractRawDefinitions(cwd);
   const ourServers = resolveServers(rawData);
 
-  // Filter to only plugin servers and enabled ones
+  // Filter to only plugin servers that are GREEN (enabled and running)
+  // Exclude ORANGE servers (state=on, runtime=stopped) as they don't appear in Claude's list
   const ourPluginServers = ourServers.filter(
-    (s) => s.sourceType === 'plugin' && s.state === 'on'
+    (s) => s.sourceType === 'plugin' && s.state === 'on' && s.runtime !== 'stopped'
   );
 
   // Create maps for comparison

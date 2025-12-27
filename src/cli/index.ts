@@ -13,7 +13,7 @@
 
 import { Command } from 'commander';
 
-const VERSION = '3.0.0-alpha.1';
+const VERSION = '2.0.1';
 
 // Capture Claude args before Commander parses (everything after --)
 const dashDashIndex = process.argv.indexOf('--');

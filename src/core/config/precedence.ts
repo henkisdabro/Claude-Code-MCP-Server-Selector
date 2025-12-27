@@ -199,14 +199,17 @@ export function resolveServers(
     // For plugin servers, enabledPlugins is the primary control mechanism
     if (def.sourceType === 'plugin') {
       const pluginEnabled = getPluginEnabledState(name);
-      if (pluginEnabled === false) {
+      if (pluginEnabled === true) {
+        // Plugin explicitly enabled in enabledPlugins -> GREEN (on)
+        state = 'on';
+      } else if (pluginEnabled === false) {
         // Plugin explicitly disabled in enabledPlugins -> RED (off)
+        // Note: Setting to false also hides the plugin from Claude's UI
         state = 'off';
       } else {
-        // Plugin is enabled (explicitly true or not specified = default enabled)
-        // If in disabledMcpServers, it's ORANGE (on but runtime stopped)
-        // If not in disabledMcpServers, it's GREEN (on and running)
-        state = 'on';
+        // Plugin NOT in enabledPlugins -> default to disabled
+        // Plugins must be explicitly enabled to run
+        state = 'off';
       }
     } else if (def.sourceType === 'mcpjson') {
       // For mcpjson servers, state comes from enabledMcpjsonServers/disabledMcpjsonServers
@@ -235,7 +238,10 @@ export function resolveServers(
 
     // Determine runtime status
     // ORANGE state: enabled in config but runtime-disabled (in disabledMcpServers)
-    const runtime = state === 'on' && inDisabled ? 'stopped' : 'unknown';
+    // NOTE: disabledMcpServers only applies to direct servers (direct-global, direct-local)
+    // Plugin servers are controlled solely by enabledPlugins, not disabledMcpServers
+    const isDirectServer = def.sourceType?.startsWith('direct');
+    const runtime = state === 'on' && inDisabled && isDirectServer ? 'stopped' : 'unknown';
 
     servers.push({
       name,

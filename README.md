@@ -9,7 +9,7 @@
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
 
-> **v3.0.0**: Now a Node.js/npm package with React Ink TUI! New features include plugin installation from marketplace, improved plugin discovery, and cross-platform support.
+> **v2.0.1**: Now a Node.js/npm package with React Ink TUI! New features include plugin installation from marketplace, improved plugin discovery, and cross-platform support.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 
@@ -41,9 +41,9 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 - **Real-time Updates** - Toggle servers instantly with visual feedback
 - **Multi-Source Configuration** - Discovers and merges 12+ configuration sources with scope precedence
 - **Marketplace Plugin Discovery** - Automatically finds ALL plugins with MCP servers from installed_plugins.json
-- **Plugin Installation** - Install plugins from marketplace directly in the TUI **(NEW v3.0)**
+- **Plugin Installation** - Install plugins from marketplace directly in the TUI **(NEW v2.0)**
 - **CLI Subcommands** - `mcp enable/disable` for scriptable server control
-- **Plugin Management** - `mcp install/uninstall/list-available` for marketplace plugins **(NEW v3.0)**
+- **Plugin Management** - `mcp install/uninstall/list-available` for marketplace plugins **(NEW v2.0)**
 - **Integration Commands** - `export-disabled`, `sync-check`, `context-report` for automation
 - **Session Awareness** - Detects running inside Claude session and warns appropriately
 - **Enterprise Support** - 🏢 Centralised MCP deployment with allowlist/denylist/command/URL matching
@@ -124,7 +124,7 @@ mcp disable fetch --quiet     # Silent operation (exit code only)
 - `--quiet` / `-q` - Suppress all output (use exit code)
 - `--all` - Apply to all discovered servers
 
-### Plugin Management (NEW v3.0)
+### Plugin Management (NEW v2.0)
 
 Install and manage plugins from the marketplace:
 
@@ -168,7 +168,7 @@ mcp --context-report          # Show estimated token usage per server
 | Key | Action |
 |-----|--------|
 | `SPACE` | **3-way toggle**: RED (off) → GREEN (on) → ORANGE (runtime-disabled) → RED |
-| `i` | Install plugin from marketplace **(NEW v3.0)** |
+| `i` | Install plugin from marketplace **(NEW v2.0)** |
 | `ALT-M` | Migrate Direct server to project (full ownership) |
 | `ENTER` | Save changes and launch Claude |
 | `ESC` | Cancel without saving |
@@ -372,7 +372,7 @@ Control which MCP servers users can enable via allowlists and denylists:
 - **Undefined allowlist** - No restrictions (allow all servers)
 - **Invalid JSON** - Automatic lockdown mode (fail-safe security)
 
-### Advanced Restriction Matching (NEW v2.1)
+### Advanced Restriction Matching (NEW v2.0)
 
 Beyond simple server name matching, enterprises can restrict servers by command or URL patterns:
 
@@ -520,6 +520,33 @@ npm run dev
 # Build for production
 npm run build
 ```
+
+### Upgrading from v1.x (Bash Version)
+
+If you previously installed the bash-based version, you should remove it before installing the npm version to avoid conflicts:
+
+```bash
+# Check if old bash script exists
+which mcp
+
+# If it points to ~/.local/bin/mcp or similar (not an npm path), remove it:
+rm ~/.local/bin/mcp ~/.local/bin/claudemcp 2>/dev/null
+
+# Then install the new version
+npm install -g @henkisdabro/mcp-selector
+```
+
+**Alternatively**, use the install script which handles migration automatically:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/henkisdabro/Claude-Code-MCP-Server-Selector/main/install-npm.sh | bash
+```
+
+The install script will:
+- Detect old bash-based installations
+- Prompt to remove them (or auto-remove in CI with `MCP_INSTALL_NONINTERACTIVE=1`)
+- Clean up old temporary state files
+- Install the new npm package
 
 ## How It Works
 
@@ -992,8 +1019,8 @@ Built by [Henrik Söderlund](https://www.henriksoderlund.com) for the Claude Cod
 
 Powered by:
 
-- [fzf](https://github.com/junegunn/fzf) - Command-line fuzzy finder
-- [jq](https://stedolan.github.io/jq/) - JSON processor
+- [React Ink](https://github.com/vadimdemedes/ink) - React for CLI
+- [Node.js](https://nodejs.org/) - JavaScript runtime
 
 ## License
 

@@ -52,7 +52,15 @@ Always use temp file + rename pattern for JSON updates. Never write directly.
 | mcpjson | `.mcp.json` files | `enabledMcpjsonServers`/`disabledMcpjsonServers` |
 | direct-global | `~/.claude.json` root `.mcpServers` | `disabledMcpServers` in `.projects[cwd]` |
 | direct-local | `~/.claude.json` `.projects[cwd].mcpServers` | `disabledMcpServers` in same section |
-| plugin | Marketplace installations | `enabledPlugins` object |
+| plugin | Marketplace installations | `enabledPlugins` object (ONLY control) |
+
+### Plugin Control Details
+
+- Plugins are controlled ONLY by `enabledPlugins` in `.claude/settings*.json`
+- `disabledMcpServers` does NOT affect plugin servers (only direct servers)
+- Plugins NOT in `enabledPlugins` default to disabled
+- Plugins with `enabledPlugins: true` are enabled and running
+- Plugins with `enabledPlugins: false` are disabled AND hidden from UI
 
 ## 3-Way Toggle (Display States)
 
@@ -60,7 +68,7 @@ RED (off) → GREEN (on) → ORANGE (paused) → RED
 
 - **RED**: `state=off` - Server is disabled
 - **GREEN**: `state=on`, `runtime!=stopped` - Server is enabled and running
-- **ORANGE**: `state=on`, `runtime=stopped` - Server is enabled but paused
+- **ORANGE**: `state=on`, `runtime=stopped` - Server is enabled but paused (direct servers only)
 
 ## Scope Priority
 
@@ -115,6 +123,7 @@ Test files in `tests/unit/`:
 - `toggle.test.ts` - 3-way toggle logic
 - `precedence.test.ts` - Precedence resolution
 - `enterprise.test.ts` - Enterprise access control
+- `plugin.test.ts` - Plugin name format utilities
 
 ## Output Destinations
 
