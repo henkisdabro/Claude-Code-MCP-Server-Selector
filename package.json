@@ -13,7 +13,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli/index.ts",
-    "build": "esbuild src/cli/index.tsx --bundle --platform=node --target=node20 --outfile=dist/cli.js --format=esm --external:ink --external:react --external:yoga-layout-prebuilt",
+    "build": "esbuild src/cli/index.ts --bundle --platform=node --target=node20 --outfile=dist/cli.js --format=esm --external:ink --external:react --external:react-devtools-core --external:yoga-wasm-web --external:yoga-layout-prebuilt --external:@inkjs/ui --external:ink-spinner --external:zustand --external:chalk --external:supports-color --external:commander --external:fuse.js",
     "build:prod": "npm run build -- --minify",
     "test": "vitest run",
     "test:watch": "vitest",
