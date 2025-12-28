@@ -5,7 +5,7 @@
  */
 
 import { homedir } from 'node:os';
-import { resolve, relative, isAbsolute, basename, dirname } from 'node:path';
+import { resolve, relative, isAbsolute, basename, dirname, sep } from 'node:path';
 import { realpathSync, existsSync } from 'node:fs';
 
 /**
@@ -80,7 +80,7 @@ export function shortenPath(path: string, cwd: string = process.cwd()): string {
   const rel = relative(cwd, absolute);
 
   // Use relative if it's shorter and doesn't go too far up
-  if (!rel.startsWith('..') || rel.split('/').filter(p => p === '..').length <= 2) {
+  if (!rel.startsWith('..') || rel.split(sep).filter(p => p === '..').length <= 2) {
     if (rel.length < absolute.length) {
       return rel.startsWith('.') ? rel : `./${rel}`;
     }

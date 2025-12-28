@@ -20,7 +20,7 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rimraf dist"
   },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "rimraf": "^6.0.0",
     "@types/react": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",

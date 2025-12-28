@@ -6,7 +6,7 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 import { homedir } from 'node:os';
 import type { Server, SettingsSchema, ClaudeJsonSchema } from '@/types/index.js';
 import { getProjectSettingsPath } from '@/utils/platform.js';
@@ -163,6 +163,8 @@ export async function saveServerStates(
 
   // Update ~/.claude.json for ORANGE state (disabledMcpServers)
   const claudeJsonPath = join(homedir(), '.claude.json');
+  // Normalise cwd and convert to forward slashes (Claude Code uses forward slashes on all platforms)
+  const normalizedCwd = normalize(cwd).replace(/\\/g, '/');
   try {
     let claudeJson: ClaudeJsonSchema = {};
     const existing = await parseClaudeJson(claudeJsonPath);
@@ -176,12 +178,12 @@ export async function saveServerStates(
     }
 
     // Ensure project entry exists
-    if (!claudeJson.projects[cwd]) {
-      claudeJson.projects[cwd] = {};
+    if (!claudeJson.projects[normalizedCwd]) {
+      claudeJson.projects[normalizedCwd] = {};
     }
 
     // Update disabledMcpServers for this project
-    claudeJson.projects[cwd].disabledMcpServers = disabledMcpServersList.length > 0
+    claudeJson.projects[normalizedCwd].disabledMcpServers = disabledMcpServersList.length > 0
       ? disabledMcpServersList
       : undefined;
 

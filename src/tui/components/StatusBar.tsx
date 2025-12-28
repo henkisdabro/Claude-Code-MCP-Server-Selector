@@ -7,6 +7,9 @@ import { Box, Text } from 'ink';
 import type { FilterType } from '@/types/index.js';
 import { colors } from '../styles/colors.js';
 
+// Use Alt- on Windows (better font support), ⌥ on macOS/Linux
+const ALT_KEY = process.platform === 'win32' ? 'Alt-' : '⌥';
+
 interface StatusBarProps {
   filter: FilterType;
 }
@@ -21,20 +24,20 @@ export const StatusBar: React.FC<StatusBarProps> = ({ filter }) => {
           <Text> │ </Text>
           <Text color={colors.cyan}>i</Text>:Install
           <Text> │ </Text>
-          <Text color={colors.cyan}>ALT-M</Text>:Migrate
+          <Text color={colors.cyan}>{ALT_KEY}M</Text>:Migrate
           <Text> │ </Text>
-          <Text color={colors.cyan}>ALT-H</Text>:Hard-Disable
+          <Text color={colors.cyan}>{ALT_KEY}H</Text>:Hard-Disable
           <Text> │ </Text>
-          <Text color={colors.cyan}>CTRL-X</Text>:Delete
+          <Text color={colors.cyan}>^X</Text>:Delete
         </Text>
       </Box>
 
       {/* Bulk operations */}
       <Box>
         <Text dimColor>
-          <Text color={colors.cyan}>ALT-E</Text>:Enable All
+          <Text color={colors.cyan}>{ALT_KEY}E</Text>:Enable All
           <Text> │ </Text>
-          <Text color={colors.cyan}>ALT-D</Text>:Disable All
+          <Text color={colors.cyan}>{ALT_KEY}D</Text>:Disable All
           <Text> │ </Text>
           <Text color={colors.green}>ENTER</Text>:Save
           <Text> │ </Text>
@@ -68,7 +71,7 @@ interface FilterKeyProps {
 
 const FilterKey: React.FC<FilterKeyProps> = ({ k, label, active }) => (
   <>
-    <Text color={colors.cyan}>ALT-{k}</Text>
+    <Text color={colors.cyan}>{ALT_KEY}{k}</Text>
     <Text>:</Text>
     {active ? (
       <Text color={colors.green} bold>

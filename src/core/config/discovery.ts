@@ -7,7 +7,7 @@
 
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, normalize } from 'node:path';
 import type {
   ConfigSource,
   RawDefinition,
@@ -360,8 +360,8 @@ async function extractFromClaudeJson(
 
   // Project-specific configurations
   if (data.projects) {
-    // Normalise cwd to handle trailing slashes and resolve symlinks
-    const normalisedCwd = resolve(cwd).replace(/\/+$/, '');
+    // Normalise cwd and convert to forward slashes (Claude Code uses forward slashes on all platforms)
+    const normalisedCwd = normalize(cwd).replace(/\\/g, '/');
     // Find the current project entry
     const projectEntry = data.projects[normalisedCwd];
 

@@ -7,8 +7,12 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { RuntimeStatus } from '@/types/index.js';
+import { isClaudeAvailable } from '@/utils/executable.js';
 
 const execAsync = promisify(exec);
+
+// Re-export for backwards compatibility
+export { isClaudeAvailable };
 
 /**
  * Get runtime status of all MCP servers by calling `claude mcp list`
@@ -59,14 +63,3 @@ export async function getRuntimeStatus(): Promise<Record<string, RuntimeStatus>>
   return runtimeStates;
 }
 
-/**
- * Check if Claude CLI is available
- */
-export async function isClaudeAvailable(): Promise<boolean> {
-  try {
-    await execAsync('which claude', { timeout: 2000 });
-    return true;
-  } catch {
-    return false;
-  }
-}

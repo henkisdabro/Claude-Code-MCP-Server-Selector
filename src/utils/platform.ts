@@ -24,6 +24,10 @@ export function detectPlatform(): Platform {
     if (osRelease.includes('microsoft') || osRelease.includes('wsl')) {
       return 'wsl';
     }
+    // Also check WSL environment variable (more reliable in some cases)
+    if (process.env.WSL_DISTRO_NAME) {
+      return 'wsl';
+    }
     return 'linux';
   }
 

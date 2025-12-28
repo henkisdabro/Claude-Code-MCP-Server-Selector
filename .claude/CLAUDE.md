@@ -13,10 +13,13 @@ TypeScript TUI tool for managing MCP servers in Claude Code. Uses Ink (React for
 | `src/cli/index.ts` | CLI entry point with Commander.js commands |
 | `src/tui/App.tsx` | Main Ink TUI application |
 | `src/tui/store/index.ts` | Zustand state management |
+| `src/tui/hooks/useKeyBindings.ts` | Keyboard input handling (cross-platform Alt/Option) |
 | `src/core/config/discovery.ts` | Config source discovery |
 | `src/core/config/precedence.ts` | Dual precedence resolution |
 | `src/core/config/state.ts` | State persistence |
 | `src/core/servers/toggle.ts` | 3-way toggle logic |
+| `src/utils/executable.ts` | Cross-platform executable detection (no shell commands) |
+| `src/utils/platform.ts` | Platform detection (Linux, macOS, Windows, WSL) |
 | `install-npm.sh` | npm-based installation script |
 
 ## Critical Guardrails
@@ -124,6 +127,8 @@ Test files in `tests/unit/`:
 - `precedence.test.ts` - Precedence resolution
 - `enterprise.test.ts` - Enterprise access control
 - `plugin.test.ts` - Plugin name format utilities
+- `executable.test.ts` - Cross-platform executable detection
+- `platform.test.ts` - Platform detection (Linux, macOS, Windows, WSL)
 
 ## Output Destinations
 
@@ -131,8 +136,53 @@ Test files in `tests/unit/`:
 - Direct server disable → `~/.claude.json` `.projects[cwd].disabledMcpServers`
 - Plugin state → `./.claude/settings.local.json` `enabledPlugins`
 
+## Cross-Platform Support
+
+### Executable Detection
+
+The `executable.ts` utility finds executables without shell commands:
+- Uses `path.delimiter` for PATH splitting (`:` on Unix, `;` on Windows)
+- Checks `PATHEXT` on Windows for `.exe`, `.cmd`, `.bat` extensions
+- Uses `accessSync(X_OK)` on Unix to verify executable permission
+- Resolves symlinks (both absolute and relative targets)
+- Security: Rejects path traversal attempts and empty PATH entries
+
+### macOS Keyboard Shortcuts
+
+The `useKeyBindings.ts` hook handles multiple Alt/Option key detection methods:
+1. **Native `key.meta`** - Works in iTerm2 and configured terminals
+2. **Escape sequence** - For terminals sending Escape+key
+3. **Unicode character map** - For unconfigured macOS Terminal.app
+
+macOS Terminal.app by default sends Unicode characters for Option+key:
+- `Option+E` → `´` (mapped back to 'e')
+- `Option+D` → `∂` (mapped back to 'd')
+- `Option+M` → `µ` (mapped back to 'm')
+
+### Platform Detection
+
+The `platform.ts` utility detects:
+- `macos` - Darwin platform
+- `windows` - Win32 platform
+- `wsl` - Linux with Microsoft kernel or `WSL_DISTRO_NAME` env var
+- `linux` - Native Linux
+
+### Windows Path Handling
+
+**Critical**: Claude Code uses **forward slashes** for project keys on ALL platforms:
+- Claude Code stores: `"C:/Users/henrik/project"`
+- Windows `path.normalize()` produces: `C:\Users\henrik\project`
+
+These are different JSON keys, causing read/write mismatches. Solution:
+```typescript
+const normalizedCwd = normalize(cwd).replace(/\\/g, '/');
+```
+
+This pattern is used in `state.ts`, `discovery.ts`, and `migration.ts`.
+
 ## CI/CD
 
 - **Workflow file**: `.github/workflows/deploy.yml` - MUST keep this filename as npm trusted publishing is configured for this specific workflow
 - **Node.js version**: CI uses Node 24 (bundled npm 11.6.2 supports trusted publishing OIDC)
 - **Package engines**: `>=22.0.0` for broader user compatibility
+- **Platform matrix**: Tests run on ubuntu-latest, macos-latest, windows-latest

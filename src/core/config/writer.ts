@@ -141,7 +141,7 @@ export async function getLatestBackup(fileName: string): Promise<string | null> 
  * Restore from the most recent backup
  */
 export async function restoreFromBackup(filePath: string): Promise<boolean> {
-  const fileName = filePath.split('/').pop() ?? 'config';
+  const fileName = basename(filePath) || 'config';
   const backup = await getLatestBackup(fileName);
 
   if (!backup) {
