@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { join } from 'node:path';
 
 // Mock the os module before importing
 vi.mock('node:os', async () => {
@@ -196,28 +197,28 @@ describe('user path functions', () => {
     mockHomedir.mockReturnValue('/home/testuser');
 
     const { getClaudeConfigDir } = await import('@/utils/platform.js');
-    expect(getClaudeConfigDir()).toBe('/home/testuser/.claude');
+    expect(getClaudeConfigDir()).toBe(join('/home/testuser', '.claude'));
   });
 
   it('getClaudeJsonPath uses homedir', async () => {
     mockHomedir.mockReturnValue('/home/testuser');
 
     const { getClaudeJsonPath } = await import('@/utils/platform.js');
-    expect(getClaudeJsonPath()).toBe('/home/testuser/.claude.json');
+    expect(getClaudeJsonPath()).toBe(join('/home/testuser', '.claude.json'));
   });
 
   it('getUserMcpJsonPath uses homedir', async () => {
     mockHomedir.mockReturnValue('/home/testuser');
 
     const { getUserMcpJsonPath } = await import('@/utils/platform.js');
-    expect(getUserMcpJsonPath()).toBe('/home/testuser/.mcp.json');
+    expect(getUserMcpJsonPath()).toBe(join('/home/testuser', '.mcp.json'));
   });
 
   it('getUserSettingsPath returns settings.json by default', async () => {
     mockHomedir.mockReturnValue('/home/testuser');
 
     const { getUserSettingsPath } = await import('@/utils/platform.js');
-    expect(getUserSettingsPath()).toBe('/home/testuser/.claude/settings.json');
+    expect(getUserSettingsPath()).toBe(join('/home/testuser', '.claude', 'settings.json'));
   });
 
   it('getUserSettingsPath returns settings.local.json when local=true', async () => {
@@ -225,7 +226,7 @@ describe('user path functions', () => {
 
     const { getUserSettingsPath } = await import('@/utils/platform.js');
     expect(getUserSettingsPath(true)).toBe(
-      '/home/testuser/.claude/settings.local.json'
+      join('/home/testuser', '.claude', 'settings.local.json')
     );
   });
 
@@ -235,8 +236,8 @@ describe('user path functions', () => {
     const { getClaudeConfigDir, getClaudeJsonPath } = await import(
       '@/utils/platform.js'
     );
-    expect(getClaudeConfigDir()).toBe('/Users/testuser/.claude');
-    expect(getClaudeJsonPath()).toBe('/Users/testuser/.claude.json');
+    expect(getClaudeConfigDir()).toBe(join('/Users/testuser', '.claude'));
+    expect(getClaudeJsonPath()).toBe(join('/Users/testuser', '.claude.json'));
   });
 
   it('works with Windows-style home directory', async () => {
@@ -260,20 +261,20 @@ describe('project path functions', () => {
   it('getProjectSettingsPath uses provided cwd', async () => {
     const { getProjectSettingsPath } = await import('@/utils/platform.js');
     expect(getProjectSettingsPath('/my/project')).toBe(
-      '/my/project/.claude/settings.json'
+      join('/my/project', '.claude', 'settings.json')
     );
   });
 
   it('getProjectSettingsPath returns local variant', async () => {
     const { getProjectSettingsPath } = await import('@/utils/platform.js');
     expect(getProjectSettingsPath('/my/project', true)).toBe(
-      '/my/project/.claude/settings.local.json'
+      join('/my/project', '.claude', 'settings.local.json')
     );
   });
 
   it('getProjectMcpJsonPath uses provided cwd', async () => {
     const { getProjectMcpJsonPath } = await import('@/utils/platform.js');
-    expect(getProjectMcpJsonPath('/my/project')).toBe('/my/project/.mcp.json');
+    expect(getProjectMcpJsonPath('/my/project')).toBe(join('/my/project', '.mcp.json'));
   });
 });
 
@@ -287,7 +288,7 @@ describe('marketplace path functions', () => {
     mockHomedir.mockReturnValue('/home/testuser');
 
     const { getMarketplaceDir } = await import('@/utils/platform.js');
-    expect(getMarketplaceDir()).toBe('/home/testuser/.claude/plugins');
+    expect(getMarketplaceDir()).toBe(join('/home/testuser', '.claude', 'plugins'));
   });
 
   it('getMarketplacesDir returns marketplaces subdirectory', async () => {
@@ -295,7 +296,7 @@ describe('marketplace path functions', () => {
 
     const { getMarketplacesDir } = await import('@/utils/platform.js');
     expect(getMarketplacesDir()).toBe(
-      '/home/testuser/.claude/plugins/marketplaces'
+      join('/home/testuser', '.claude', 'plugins', 'marketplaces')
     );
   });
 
@@ -304,7 +305,7 @@ describe('marketplace path functions', () => {
 
     const { getInstalledPluginsPath } = await import('@/utils/platform.js');
     expect(getInstalledPluginsPath()).toBe(
-      '/home/testuser/.claude/plugins/installed_plugins.json'
+      join('/home/testuser', '.claude', 'plugins', 'installed_plugins.json')
     );
   });
 });

@@ -4,10 +4,18 @@
  * Tests cross-platform executable finding logic.
  * Due to the complexity of mocking native modules, we test the
  * actual behaviour on the current platform.
+ *
+ * Note: Unix-specific tests are skipped on Windows because path.join
+ * always uses the real platform's separator, not the mocked platform.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
+
+// Helper to skip Unix tests on Windows
+const isWindows = process.platform === 'win32';
+const describeUnix = isWindows ? describe.skip : describe;
+const itUnix = isWindows ? it.skip : it;
 
 // We mock fs module before imports
 vi.mock('node:fs', async () => {
@@ -60,7 +68,7 @@ describe('findExecutable', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
-  describe('on Unix (current platform)', () => {
+  describeUnix('on Unix (current platform)', () => {
     beforeEach(() => {
       process.env.PATH = '/usr/local/bin:/usr/bin';
     });
@@ -105,7 +113,7 @@ describe('findExecutable', () => {
     });
   });
 
-  describe('symlink resolution', () => {
+  describeUnix('symlink resolution', () => {
     beforeEach(() => {
       process.env.PATH = '/usr/local/bin';
     });
@@ -165,7 +173,7 @@ describe('findExecutable', () => {
   });
 });
 
-describe('isClaudeAvailable', () => {
+describeUnix('isClaudeAvailable', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -207,7 +215,7 @@ describe('isClaudeAvailable', () => {
   });
 });
 
-describe('findClaudeBinary', () => {
+describeUnix('findClaudeBinary', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -300,7 +308,7 @@ describe('Windows PATHEXT handling', () => {
   });
 });
 
-describe('security edge cases', () => {
+describeUnix('security edge cases', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {

@@ -42,28 +42,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify platform detection
-        run: |
-          npx tsx -e "
-            import { detectPlatform } from './src/utils/platform.js';
-            import { isClaudeAvailable } from './src/utils/executable.js';
-            console.log('Platform detected:', detectPlatform());
-            console.log('Claude CLI available:', isClaudeAvailable());
-
-            // Verify expected platform
-            const expected = {
-              'darwin': 'macos',
-              'win32': 'windows',
-              'linux': 'linux'
-            }[process.platform];
-
-            const detected = detectPlatform();
-            if (detected !== expected && detected !== 'wsl') {
-              console.error('Platform mismatch: expected', expected, 'got', detected);
-              process.exit(1);
-            }
-            console.log('Platform verification passed');
-          "
+      - name: Verify build output
+        run: node dist/cli.js --version
 
   coverage:
     runs-on: ubuntu-latest

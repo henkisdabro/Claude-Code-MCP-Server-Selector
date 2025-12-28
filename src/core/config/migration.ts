@@ -6,7 +6,7 @@
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 import type { Server } from '@/types/index.js';
 import { getClaudeJsonPath } from '@/utils/platform.js';
 
@@ -29,6 +29,9 @@ export async function migrateServerToProject(
   server: Server,
   cwd: string
 ): Promise<MigrationResult> {
+  // Normalise cwd for consistent key across platforms (Windows path separators)
+  const normalizedCwd = normalize(cwd);
+
   // Validate server type
   if (!server.sourceType.startsWith('direct')) {
     return {
@@ -38,7 +41,7 @@ export async function migrateServerToProject(
   }
 
   const claudeJsonPath = getClaudeJsonPath();
-  const projectMcpPath = join(cwd, '.mcp.json');
+  const projectMcpPath = join(normalizedCwd, '.mcp.json');
   const backupDir = join(homedir(), '.claude', 'backups');
 
   try {
@@ -72,15 +75,15 @@ export async function migrateServerToProject(
       }
     } else if (server.sourceType === 'direct-local') {
       // From projects[cwd].mcpServers
-      definition = claudeJson.projects?.[cwd]?.mcpServers?.[server.name];
+      definition = claudeJson.projects?.[normalizedCwd]?.mcpServers?.[server.name];
       if (definition) {
-        delete claudeJson.projects[cwd].mcpServers[server.name];
+        delete claudeJson.projects[normalizedCwd].mcpServers[server.name];
         // Clean up empty objects
-        if (Object.keys(claudeJson.projects[cwd].mcpServers).length === 0) {
-          delete claudeJson.projects[cwd].mcpServers;
+        if (Object.keys(claudeJson.projects[normalizedCwd].mcpServers).length === 0) {
+          delete claudeJson.projects[normalizedCwd].mcpServers;
         }
-        if (Object.keys(claudeJson.projects[cwd]).length === 0) {
-          delete claudeJson.projects[cwd];
+        if (Object.keys(claudeJson.projects[normalizedCwd]).length === 0) {
+          delete claudeJson.projects[normalizedCwd];
         }
         if (Object.keys(claudeJson.projects).length === 0) {
           delete claudeJson.projects;
