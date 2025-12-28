@@ -9,7 +9,7 @@
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
 
-> **v2.0.2**: Now a Node.js/npm package with React Ink TUI! New features include plugin installation from marketplace, improved plugin discovery, cross-platform support, and Claude flag passthrough.
+> **v2.0.3**: Cross-platform improvements for macOS and Windows PowerShell, including proper path normalisation and keyboard shortcut support.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 
