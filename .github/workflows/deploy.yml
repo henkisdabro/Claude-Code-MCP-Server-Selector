@@ -9,7 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  # Run essential tests before publishing
   test:
     runs-on: ubuntu-latest
     steps:
@@ -21,7 +20,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  # Publish only if tests pass
   publish:
     needs: test
     runs-on: ubuntu-latest
