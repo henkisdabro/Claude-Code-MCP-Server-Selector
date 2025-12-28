@@ -29,8 +29,8 @@ export async function migrateServerToProject(
   server: Server,
   cwd: string
 ): Promise<MigrationResult> {
-  // Normalise cwd for consistent key across platforms (Windows path separators)
-  const normalizedCwd = normalize(cwd);
+  // Normalise cwd and convert to forward slashes (Claude Code uses forward slashes on all platforms)
+  const normalizedCwd = normalize(cwd).replace(/\\/g, '/');
 
   // Validate server type
   if (!server.sourceType.startsWith('direct')) {

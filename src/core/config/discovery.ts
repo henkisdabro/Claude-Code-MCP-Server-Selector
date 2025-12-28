@@ -360,8 +360,8 @@ async function extractFromClaudeJson(
 
   // Project-specific configurations
   if (data.projects) {
-    // Normalise cwd for consistent key across platforms (Windows path separators)
-    const normalisedCwd = normalize(cwd);
+    // Normalise cwd and convert to forward slashes (Claude Code uses forward slashes on all platforms)
+    const normalisedCwd = normalize(cwd).replace(/\\/g, '/');
     // Find the current project entry
     const projectEntry = data.projects[normalisedCwd];
 
