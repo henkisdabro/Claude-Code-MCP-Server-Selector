@@ -8,51 +8,17 @@
 import React from 'react';
 import { render } from 'ink';
 import { spawn } from 'node:child_process';
-import { existsSync, readlinkSync } from 'node:fs';
-import { join, delimiter } from 'node:path';
-import { homedir } from 'node:os';
 import chalk from 'chalk';
 import { canRunTui } from '@/utils/terminal.js';
 import { App } from '@/tui/App.js';
 import { getSessionContext, formatSessionWarning } from '@/utils/session.js';
+import { findClaudeBinary } from '@/utils/executable.js';
 
 export interface TuiOptions {
   strictDisable?: boolean;
   quiet?: boolean;
   claudeArgs?: string[];
   launch?: boolean;
-}
-
-/**
- * Find the Claude CLI binary
- */
-function findClaudeBinary(): string | null {
-  // Check ~/.local/bin/claude (symlink on Linux/macOS)
-  const localBin = join(homedir(), '.local', 'bin', 'claude');
-  if (existsSync(localBin)) {
-    try {
-      // Resolve symlink to actual binary
-      const target = readlinkSync(localBin);
-      if (existsSync(target)) {
-        return target;
-      }
-    } catch {
-      // Not a symlink, use directly
-      return localBin;
-    }
-    return localBin;
-  }
-
-  // Check PATH
-  const pathDirs = (process.env.PATH || '').split(delimiter);
-  for (const dir of pathDirs) {
-    const claudePath = join(dir, 'claude');
-    if (existsSync(claudePath)) {
-      return claudePath;
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -67,14 +33,29 @@ function launchClaude(args: string[]): void {
   }
 
   if (!process.env.MCP_QUIET) {
-    console.log(`Launching Claude Code...`);
+    console.log('Launching Claude Code...');
   }
 
-  // Use spawn with stdio: 'inherit' to replace this process
-  const child = spawn(claudeBin, args, {
-    stdio: 'inherit',
-    env: process.env,
-  });
+  // On Windows, spawn via PowerShell (cmd.exe has TUI issues)
+  // On Unix, spawn directly
+  const child =
+    process.platform === 'win32'
+      ? spawn('pwsh.exe', ['-NoProfile', '-NoLogo', '-Command', 'claude', ...args], {
+          stdio: 'inherit',
+          env: process.env,
+        })
+      : spawn(claudeBin, args, {
+          stdio: 'inherit',
+          env: process.env,
+        });
+
+  // On Windows, show delayed prompt for user to press Enter
+  // Due to terminal handoff quirk, Claude needs a keypress to redraw
+  if (process.platform === 'win32') {
+    setTimeout(() => {
+      console.log('Press Enter to continue...');
+    }, 2000);
+  }
 
   child.on('error', (err) => {
     console.error(`Failed to launch Claude: ${err.message}`);

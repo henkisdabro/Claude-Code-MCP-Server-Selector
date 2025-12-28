@@ -169,13 +169,25 @@ mcp --context-report          # Show estimated token usage per server
 |-----|--------|
 | `SPACE` | **3-way toggle**: RED (off) → GREEN (on) → ORANGE (runtime-disabled) → RED |
 | `i` | Install plugin from marketplace **(NEW v2.0)** |
-| `ALT-M` | Migrate Direct server to project (full ownership) |
+| `⌥M` / `ALT-M` | Migrate Direct server to project (full ownership) |
 | `ENTER` | Save changes and launch Claude |
 | `ESC` | Cancel without saving |
 | `CTRL-X` | Remove selected server |
-| `ALT-E` | Enable all servers |
-| `ALT-D` | Disable all servers |
+| `⌥E` / `ALT-E` | Enable all servers |
+| `⌥D` / `ALT-D` | Disable all servers |
 | `j/k` or `↑/↓` | Navigate up/down |
+
+#### macOS Keyboard Shortcuts
+
+Option key shortcuts (⌥) work out of the box in **Terminal.app**. For **VSCode's integrated terminal**, you may need to add this setting for single-press shortcuts:
+
+```json
+{
+  "terminal.integrated.macOptionIsMeta": true
+}
+```
+
+Without this setting, VSCode requires pressing the key twice (e.g., `Option+E E`) due to dead key handling.
 
 ### UI Indicators
 
