@@ -209,9 +209,16 @@ User: "Release 2.0.3"
 
 ## npm Trusted Publishing Configuration
 
-The npm package is configured for trusted publishing with these settings:
+The npm package uses trusted publishing (OIDC) with these requirements:
+- **npm CLI 11.5.1+** (workflow upgrades npm automatically)
 - **Repository**: `henkisdabro/Claude-Code-MCP-Server-Selector`
 - **Workflow**: `deploy.yml`
 - **Environment**: (none required)
 
-If publishing fails, verify these settings match on npm: https://www.npmjs.com/package/@henkisdabro/mcp-selector/access
+The workflow (`.github/workflows/deploy.yml`) handles everything:
+1. Tests must pass first
+2. npm is upgraded to latest (11.5.1+)
+3. OIDC authentication happens automatically
+4. Provenance is generated automatically
+
+If publishing fails, verify settings on npm: https://www.npmjs.com/package/@henkisdabro/mcp-selector/access
