@@ -19,10 +19,16 @@ Use when:
 ## Release Flow
 
 ```
-Version Bump → Build → Test → Commit → Tag → Push → GitHub Release → npm Publish (automatic)
+Version Bump → Build → Test → Commit → Tag → Push → GitHub Release → npm Publish (automatic via OIDC)
 ```
 
-The GitHub Actions workflow `.github/workflows/publish.yml` automatically publishes to npm when a GitHub release is created.
+The GitHub Actions workflow `.github/workflows/deploy.yml` automatically publishes to npm when a GitHub release is created using **npm Trusted Publishing (OIDC)**.
+
+## IMPORTANT: No Local Publishing
+
+**Local `npm publish` is NOT supported.** This project uses npm Trusted Publishing which only works via GitHub Actions. The OIDC authentication is tied to the GitHub repository and workflow, so publishing must happen through the CI pipeline.
+
+If you try to run `npm publish` locally, it will fail with authentication errors.
 
 ## Procedure
 
@@ -196,7 +202,16 @@ User: "Release 2.0.3"
 
 ## Notes
 
-- The npm publish is handled automatically by GitHub Actions - never run `npm publish` manually
+- **Never run `npm publish` locally** - it won't work with trusted publishing
+- The npm publish is handled automatically by GitHub Actions via OIDC
 - Always create releases from the `main` branch
 - Use `--generate-notes` for auto-generated changelog from PR titles
-- The `NPM_TOKEN` secret must be configured in GitHub repository settings
+
+## npm Trusted Publishing Configuration
+
+The npm package is configured for trusted publishing with these settings:
+- **Repository**: `henkisdabro/Claude-Code-MCP-Server-Selector`
+- **Workflow**: `deploy.yml`
+- **Environment**: (none required)
+
+If publishing fails, verify these settings match on npm: https://www.npmjs.com/package/@henkisdabro/mcp-selector/access
