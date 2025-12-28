@@ -248,7 +248,7 @@ export function useKeyBindings(handlers: KeyBindingHandlers): void {
 
     // Save with Enter
     if (key.return) {
-      handlers.onSave();
+      void handlers.onSave();
       return;
     }
 

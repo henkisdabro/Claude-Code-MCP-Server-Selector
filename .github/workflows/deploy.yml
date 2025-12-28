@@ -44,9 +44,9 @@ jobs:
 
       - name: Verify platform detection
         run: |
-          node --input-type=module -e "
-            import { detectPlatform } from './dist/utils/platform.js';
-            import { isClaudeAvailable } from './dist/utils/executable.js';
+          npx tsx -e "
+            import { detectPlatform } from './src/utils/platform.js';
+            import { isClaudeAvailable } from './src/utils/executable.js';
             console.log('Platform detected:', detectPlatform());
             console.log('Claude CLI available:', isClaudeAvailable());
 
