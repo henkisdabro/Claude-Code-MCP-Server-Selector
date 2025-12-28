@@ -49,7 +49,7 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 - **Enterprise Support** - 🏢 Centralised MCP deployment with allowlist/denylist/command/URL matching
 - **Smart Migration** - Automatically migrate global servers to project-level control
 - **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
-- **Cross-Platform** - Works on Linux, macOS, and Windows
+- **Cross-Platform** - Works on Linux, macOS, and Windows (including PowerShell)
 - **npm Package** - Simple installation via npm/npx, Node.js 20+ required
 
 ## Quick Start

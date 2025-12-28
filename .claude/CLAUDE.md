@@ -167,6 +167,19 @@ The `platform.ts` utility detects:
 - `wsl` - Linux with Microsoft kernel or `WSL_DISTRO_NAME` env var
 - `linux` - Native Linux
 
+### Windows Path Handling
+
+**Critical**: Claude Code uses **forward slashes** for project keys on ALL platforms:
+- Claude Code stores: `"C:/Users/henrik/project"`
+- Windows `path.normalize()` produces: `C:\Users\henrik\project`
+
+These are different JSON keys, causing read/write mismatches. Solution:
+```typescript
+const normalizedCwd = normalize(cwd).replace(/\\/g, '/');
+```
+
+This pattern is used in `state.ts`, `discovery.ts`, and `migration.ts`.
+
 ## CI/CD
 
 - **Workflow file**: `.github/workflows/deploy.yml` - MUST keep this filename as npm trusted publishing is configured for this specific workflow
