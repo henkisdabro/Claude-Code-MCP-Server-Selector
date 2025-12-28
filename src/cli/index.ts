@@ -4,24 +4,26 @@
  *
  * Interactive TUI and CLI commands for managing MCP servers in Claude Code.
  *
- * Usage: mcp [OPTIONS] [-- CLAUDE_ARGS...]
+ * Usage: mcp [OPTIONS] [CLAUDE_FLAGS...]
  *
  * After saving server selections, launches Claude with any passed arguments.
- * Example: mcp -- --resume
- * Example: mcp -- --dangerously-skip-permissions
+ * Claude flags can be passed directly or after -- separator:
+ *   mcp --dangerously-skip-permissions
+ *   mcp --resume --print
+ *   mcp -- --dangerously-skip-permissions
  */
 
 import { Command } from 'commander';
 
-const VERSION = '2.0.1';
+const VERSION = '2.0.2';
 
-// Capture Claude args before Commander parses (everything after --)
+// Capture Claude args passed after -- separator
 const dashDashIndex = process.argv.indexOf('--');
-const claudeArgs: string[] = dashDashIndex !== -1
+const postDashArgs: string[] = dashDashIndex !== -1
   ? process.argv.slice(dashDashIndex + 1)
   : [];
 
-// Remove Claude args from process.argv so Commander doesn't see them
+// Remove post-dash args from process.argv so Commander doesn't see them
 if (dashDashIndex !== -1) {
   process.argv = process.argv.slice(0, dashDashIndex);
 }
@@ -30,8 +32,9 @@ const program = new Command();
 
 program
   .name('mcp')
-  .description('MCP Server Selector TUI for Claude Code')
-  .version(VERSION);
+  .description('MCP Server Selector TUI for Claude Code\n\nClaude flags (--resume, --dangerously-skip-permissions, etc.) are passed through.')
+  .version(VERSION)
+  .allowUnknownOption(); // Allow Claude flags to pass through
 
 // Default TUI mode
 program
@@ -40,7 +43,11 @@ program
   .option('--strict-disable', 'Convert ORANGE servers to RED before launching Claude')
   .option('-q, --quiet', 'Suppress non-essential output')
   .option('--no-launch', 'Do not launch Claude after saving (for testing)')
-  .action(async (options) => {
+  .allowUnknownOption() // Allow Claude flags to pass through
+  .action(async (options, command) => {
+    // Collect unknown options (Claude flags) from command.args
+    const unknownFlags = command.args.filter((arg: string) => arg.startsWith('-'));
+    const claudeArgs = [...unknownFlags, ...postDashArgs];
     const { runTui } = await import('./commands/tui.js');
     await runTui({ ...options, claudeArgs, launch: options.launch !== false });
   });
