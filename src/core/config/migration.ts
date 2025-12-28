@@ -5,6 +5,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from '@/types/index.js';
 import { getClaudeJsonPath } from '@/utils/platform.js';
@@ -38,7 +39,7 @@ export async function migrateServerToProject(
 
   const claudeJsonPath = getClaudeJsonPath();
   const projectMcpPath = join(cwd, '.mcp.json');
-  const backupDir = join(process.env.HOME || '~', '.claude', 'backups');
+  const backupDir = join(homedir(), '.claude', 'backups');
 
   try {
     // Ensure backup directory exists

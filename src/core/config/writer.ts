@@ -7,7 +7,7 @@
 
 import { writeFileSync, renameSync, copyFileSync, mkdirSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 /** Backup directory for ~/.claude.json backups */
@@ -50,7 +50,7 @@ export function createBackup(filePath: string): string | null {
   ensureDir(BACKUP_DIR);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const baseName = filePath.split('/').pop() ?? 'config';
+  const baseName = basename(filePath) || 'config';
   const backupPath = join(BACKUP_DIR, `${baseName}.${timestamp}.bak`);
 
   copyFileSync(filePath, backupPath);

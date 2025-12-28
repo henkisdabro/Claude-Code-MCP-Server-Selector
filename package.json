@@ -5,15 +5,15 @@
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "mcp": "./dist/cli.js",
-    "claudemcp": "./dist/cli.js"
+    "mcp": "dist/cli.js",
+    "claudemcp": "dist/cli.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "tsx src/cli/index.ts",
-    "build": "esbuild src/cli/index.ts --bundle --platform=node --target=node20 --outfile=dist/cli.js --format=esm --external:ink --external:react --external:react-devtools-core --external:yoga-wasm-web --external:yoga-layout-prebuilt --external:@inkjs/ui --external:ink-spinner --external:zustand --external:chalk --external:supports-color --external:commander --external:fuse.js",
+    "build": "esbuild src/cli/index.ts --bundle --platform=node --target=node24 --outfile=dist/cli.js --format=esm --external:ink --external:react --external:react-devtools-core --external:yoga-wasm-web --external:yoga-layout-prebuilt --external:@inkjs/ui --external:ink-spinner --external:zustand --external:chalk --external:supports-color --external:commander --external:fuse.js",
     "build:prod": "npm run build -- --minify",
     "test": "vitest run",
     "test:watch": "vitest",

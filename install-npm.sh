@@ -21,7 +21,7 @@ set -euo pipefail
 # ============================================================================
 
 readonly PACKAGE_NAME="@henkisdabro/mcp-selector"
-readonly MIN_NODE_VERSION=20
+readonly MIN_NODE_VERSION=22
 
 # Colour codes
 readonly COLOUR_RESET='\033[0m'
@@ -69,17 +69,17 @@ check_node_version() {
     if ! command -v node &> /dev/null; then
         msg_error "Node.js is not installed"
         echo ""
-        echo -e "${COLOUR_CYAN}Install Node.js 20 or later:${COLOUR_RESET}"
+        echo -e "${COLOUR_CYAN}Install Node.js 22 or later:${COLOUR_RESET}"
         echo ""
         echo "  Using nvm (recommended):"
         echo "    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
-        echo "    nvm install 20"
+        echo "    nvm install 22"
         echo ""
         echo "  Using Homebrew (macOS):"
-        echo "    brew install node@20"
+        echo "    brew install node@22"
         echo ""
         echo "  Using apt (Ubuntu/Debian):"
-        echo "    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
         echo "    sudo apt-get install -y nodejs"
         echo ""
         exit 1

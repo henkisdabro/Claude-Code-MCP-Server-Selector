@@ -9,7 +9,7 @@ import React from 'react';
 import { render } from 'ink';
 import { spawn } from 'node:child_process';
 import { existsSync, readlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, delimiter } from 'node:path';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
 import { canRunTui } from '@/utils/terminal.js';
@@ -44,7 +44,7 @@ function findClaudeBinary(): string | null {
   }
 
   // Check PATH
-  const pathDirs = (process.env.PATH || '').split(':');
+  const pathDirs = (process.env.PATH || '').split(delimiter);
   for (const dir of pathDirs) {
     const claudePath = join(dir, 'claude');
     if (existsSync(claudePath)) {

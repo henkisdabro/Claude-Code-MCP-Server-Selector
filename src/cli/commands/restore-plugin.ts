@@ -7,6 +7,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { discoverAllSources } from '@/core/config/discovery.js';
@@ -23,7 +24,7 @@ interface RestoreResult {
 function createBackup(filePath: string): string | null {
   if (!existsSync(filePath)) return null;
 
-  const backupDir = join(process.env.HOME || '~', '.claude', 'backups');
+  const backupDir = join(homedir(), '.claude', 'backups');
   if (!existsSync(backupDir)) {
     mkdirSync(backupDir, { recursive: true });
   }

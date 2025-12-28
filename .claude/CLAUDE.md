@@ -130,3 +130,9 @@ Test files in `tests/unit/`:
 - MCPJSON state → `./.claude/settings.local.json`
 - Direct server disable → `~/.claude.json` `.projects[cwd].disabledMcpServers`
 - Plugin state → `./.claude/settings.local.json` `enabledPlugins`
+
+## CI/CD
+
+- **Workflow file**: `.github/workflows/deploy.yml` - MUST keep this filename as npm trusted publishing is configured for this specific workflow
+- **Node.js version**: CI uses Node 24 (bundled npm 11.6.2 supports trusted publishing OIDC)
+- **Package engines**: `>=22.0.0` for broader user compatibility
