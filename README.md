@@ -9,7 +9,7 @@
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
 
-> **v2.0.3**: Cross-platform improvements including Windows drive letter normalisation, improved WSL detection (avoiding Azure VM false positives), file locking for concurrent access protection, symlink depth protection, and plugin name validation.
+> **v2.1.0**: Fix MCP server discovery for plugins using root-level format (playwright, greptile from claude-plugins-official). Cross-platform improvements including file locking, symlink depth protection, and improved WSL detection.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 
