@@ -824,6 +824,54 @@ For enterprise-managed environments, please:
 
 This tool is designed primarily for individual developers and teams managing their own MCP server configurations.
 
+## Updating
+
+### Manual Update (Recommended)
+
+To update to the latest version:
+
+```bash
+npm update -g @henkisdabro/mcp-selector
+```
+
+Or explicitly install the latest version:
+
+```bash
+npm install -g @henkisdabro/mcp-selector@latest
+```
+
+### Check Current Version
+
+```bash
+mcp --version
+# or
+npm list -g @henkisdabro/mcp-selector
+```
+
+### Check for Available Updates
+
+```bash
+npm outdated -g @henkisdabro/mcp-selector
+```
+
+### Using npx (Always Latest)
+
+If you prefer to always use the latest version without managing updates, use `npx`:
+
+```bash
+npx @henkisdabro/mcp-selector
+```
+
+This fetches the latest version each time (with caching for performance).
+
+### Automatic Updates
+
+npm does not support automatic updates for global packages natively. This is by design - automatic updates could introduce breaking changes without user awareness.
+
+**Recommended approach:** Check for updates periodically with `npm outdated -g` or subscribe to release notifications on [GitHub](https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector/releases).
+
+**Alternative:** If you want always-latest behaviour, use `npx` instead of a global installation. The slight startup overhead is minimal.
+
 ## Uninstall
 
 To completely remove Claude Code MCP Server Selector:

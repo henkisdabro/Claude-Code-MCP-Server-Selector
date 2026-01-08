@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Social Image Generator - MCP Selector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .instructions {
+            color: #888;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .instructions h1 {
+            color: #007ACC;
+            margin-bottom: 0.5rem;
+        }
+
+        /* The actual image container */
+        .social-image {
+            width: 1200px;
+            height: 630px;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #080D19 0%, #0E1525 50%, #1A2332 100%);
+            border: 2px solid #007ACC;
+            border-radius: 8px;
+        }
+
+        /* Pixelated grid background */
+        .pixel-grid {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(rgba(0, 122, 204, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 122, 204, 0.04) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* Glowing orbs in corners */
+        .pixel-scatter {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                radial-gradient(circle at 8% 15%, rgba(213, 97, 38, 0.15) 0%, transparent 12%),
+                radial-gradient(circle at 92% 85%, rgba(0, 122, 204, 0.12) 0%, transparent 15%),
+                radial-gradient(circle at 88% 12%, rgba(0, 212, 255, 0.06) 0%, transparent 10%),
+                radial-gradient(circle at 12% 88%, rgba(213, 97, 38, 0.08) 0%, transparent 12%);
+        }
+
+        /* Pixel stars */
+        .pixel-star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.6);
+            box-shadow: 0 0 4px rgba(255, 255, 255, 0.4);
+        }
+
+        /* Pixel blocks decoration */
+        .pixel-block {
+            position: absolute;
+            background: rgba(213, 97, 38, 0.12);
+            border: 1px solid rgba(213, 97, 38, 0.25);
+        }
+
+        .pixel-block-blue {
+            position: absolute;
+            background: rgba(0, 122, 204, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        /* Corner decorations */
+        .corner {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            border: 2px solid rgba(213, 97, 38, 0.5);
+        }
+
+        .corner-tl { top: 25px; left: 25px; border-right: none; border-bottom: none; }
+        .corner-tr { top: 25px; right: 25px; border-left: none; border-bottom: none; }
+        .corner-bl { bottom: 25px; left: 25px; border-right: none; border-top: none; }
+        .corner-br { bottom: 25px; right: 25px; border-left: none; border-top: none; }
+
+        /* Content wrapper */
+        .content {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 30px 60px;
+        }
+
+        /* MCP - larger */
+        pre.ascii-mcp {
+            font-family: 'Fira Code', monospace;
+            font-size: 30px;
+            font-weight: normal;
+            line-height: 1.1;
+            text-align: left;
+            white-space: pre;
+            color: #D56126;
+            margin: 0 auto;
+            padding: 0;
+            display: inline-block;
+            text-shadow:
+                0 0 10px rgba(213, 97, 38, 0.8),
+                0 0 20px rgba(213, 97, 38, 0.5),
+                0 0 30px rgba(213, 97, 38, 0.3);
+        }
+
+        /* SELECTOR - smaller */
+        pre.ascii-selector {
+            font-family: 'Fira Code', monospace;
+            font-size: 22px;
+            font-weight: normal;
+            line-height: 1.1;
+            text-align: left;
+            white-space: pre;
+            margin: 10px auto 0 auto;
+            padding: 0;
+            display: inline-block;
+            color: #D56126;
+            text-shadow:
+                0 0 10px rgba(213, 97, 38, 0.8),
+                0 0 20px rgba(213, 97, 38, 0.5),
+                0 0 30px rgba(213, 97, 38, 0.3);
+        }
+
+        /* Tagline */
+        .tagline {
+            margin-top: 1.5rem;
+            font-size: 36px;
+            font-weight: 600;
+            color: #B8C5D6;
+            text-align: center;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .tagline span {
+            color: #D56126;
+            text-shadow: 0 0 15px rgba(213, 97, 38, 0.6);
+        }
+
+        /* Subtitle */
+        .subtitle {
+            margin-top: 0.75rem;
+            font-size: 24px;
+            color: #7B8BA3;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        /* Download button */
+        .download-btn {
+            margin-top: 2rem;
+            padding: 1rem 2rem;
+            background: #D56126;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .download-btn:hover {
+            background: #b54d1a;
+            transform: translateY(-2px);
+        }
+
+        .dimensions {
+            margin-top: 1rem;
+            color: #666;
+            font-size: 0.875rem;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="instructions">
+        <h1>Social Image Generator</h1>
+        <p>Right-click on the image below and select "Save image as..." or take a screenshot</p>
+    </div>
+
+    <div class="social-image" id="social-image">
+        <div class="pixel-grid"></div>
+        <div class="pixel-scatter"></div>
+
+        <!-- Pixel stars scattered around -->
+        <div class="pixel-star" style="top: 45px; left: 180px;"></div>
+        <div class="pixel-star" style="top: 80px; left: 320px;"></div>
+        <div class="pixel-star" style="top: 120px; left: 95px;"></div>
+        <div class="pixel-star" style="top: 160px; left: 450px;"></div>
+        <div class="pixel-star" style="top: 200px; left: 280px;"></div>
+        <div class="pixel-star" style="top: 55px; right: 200px;"></div>
+        <div class="pixel-star" style="top: 95px; right: 350px;"></div>
+        <div class="pixel-star" style="top: 140px; right: 120px;"></div>
+        <div class="pixel-star" style="top: 180px; right: 280px;"></div>
+        <div class="pixel-star" style="bottom: 180px; left: 150px;"></div>
+        <div class="pixel-star" style="bottom: 140px; left: 350px;"></div>
+        <div class="pixel-star" style="bottom: 100px; left: 220px;"></div>
+        <div class="pixel-star" style="bottom: 160px; right: 180px;"></div>
+        <div class="pixel-star" style="bottom: 120px; right: 320px;"></div>
+        <div class="pixel-star" style="bottom: 80px; right: 150px;"></div>
+
+        <!-- Orange pixel blocks -->
+        <div class="pixel-block" style="width: 8px; height: 8px; top: 70px; left: 130px;"></div>
+        <div class="pixel-block" style="width: 10px; height: 10px; top: 150px; left: 85px;"></div>
+        <div class="pixel-block" style="width: 6px; height: 6px; top: 110px; left: 240px;"></div>
+        <div class="pixel-block" style="width: 12px; height: 12px; top: 510px; left: 160px;"></div>
+        <div class="pixel-block" style="width: 8px; height: 8px; top: 460px; left: 100px;"></div>
+
+        <!-- Blue pixel blocks -->
+        <div class="pixel-block-blue" style="width: 10px; height: 10px; top: 80px; right: 150px;"></div>
+        <div class="pixel-block-blue" style="width: 8px; height: 8px; top: 170px; right: 110px;"></div>
+        <div class="pixel-block-blue" style="width: 12px; height: 12px; top: 130px; right: 220px;"></div>
+        <div class="pixel-block-blue" style="width: 6px; height: 6px; top: 490px; right: 130px;"></div>
+        <div class="pixel-block-blue" style="width: 10px; height: 10px; top: 450px; right: 90px;"></div>
+
+        <!-- Corner decorations -->
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+
+        <!-- Main content -->
+        <div class="content">
+<pre class="ascii-mcp">
+███╗   ███╗ ██████╗██████╗
+████╗ ████║██╔════╝██╔══██╗
+██╔████╔██║██║     ██████╔╝
+██║╚██╔╝██║██║     ██╔═══╝
+██║ ╚═╝ ██║╚██████╗██║
+╚═╝     ╚═╝ ╚═════╝╚═╝     </pre>
+<pre class="ascii-selector">
+███████╗███████╗██╗     ███████╗ ██████╗████████╗ ██████╗ ██████╗
+██╔════╝██╔════╝██║     ██╔════╝██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗
+███████╗█████╗  ██║     █████╗  ██║        ██║   ██║   ██║██████╔╝
+╚════██║██╔══╝  ██║     ██╔══╝  ██║        ██║   ██║   ██║██╔══██╗
+███████║███████╗███████╗███████╗╚██████╗   ██║   ╚██████╔╝██║  ██║
+╚══════╝╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝</pre>
+            <div class="tagline">Take Control of Your <span>Claude Code</span> Context</div>
+            <div class="subtitle">Stop wasting tokens on unused MCP servers</div>
+        </div>
+    </div>
+
+    <button class="download-btn" onclick="downloadImage()">Download as PNG (use screenshot)</button>
+    <p class="dimensions">Dimensions: 1200 x 630 pixels (Open Graph / Twitter Card standard)</p>
+    <p class="dimensions" style="margin-top: 0.5rem;">macOS: Cmd+Shift+4 | Windows: Win+Shift+S</p>
+
+    <script>
+        function downloadImage() {
+            alert('Use your system screenshot tool to capture the image:\n\n• macOS: Cmd+Shift+4 then drag over the image\n• Windows: Win+Shift+S then drag over the image\n\nOr right-click and "Save image as..." (results may vary)');
+        }
+    </script>
+</body>
+</html>

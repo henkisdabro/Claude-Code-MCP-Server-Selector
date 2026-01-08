@@ -6,16 +6,36 @@
     <meta name="description" content="Claude Code MCP Server Selector - Optimize your Claude Code context window by enabling only the MCP servers you need. Fast TUI for managing Model Context Protocol servers.">
     <meta name="keywords" content="Claude Code, MCP, Model Context Protocol, context window, optimization, TUI">
     <meta name="author" content="Henrik Söderlund">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#D56126">
+    <link rel="canonical" href="https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/">
 
     <!-- Preconnect for Google Fonts performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- Google Fonts - loaded in HTML head for better performance than CSS @import -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Favicon - SVG for modern browsers, with fallback -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D56126' stroke-width='2'><polygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/></svg>" type="image/svg+xml">
+    <link rel="icon" href="data:image/x-icon;base64,AAABAAEAEBAQAAEABAAoAQAAFgAAACgAAAAQAAAAIAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAEAAAAAAAAAAAAP//AAD/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARERERERERAAEREREREREAABEREREREQAAARERERERAAAAAREREREAAAABEREREQAAAAARERERAAAAAAEREREAAAAAABEREAAAAAABEREAAAAAABEREAAAAAAAEREAAAAAAAEREAAAAAAAEREAAAAAABEREAAAAAAAAAAAA/4AAAf8AAAP8AAAH8AAAA+AAAAP4AAAD+AAAB/gAAAf4AAAH+AAAD/gAAA/8AAAP/gAAH/4AAD/+AAD//wAA" type="image/x-icon">
 
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="Claude Code MCP Server Selector - Optimize Your Claude Context">
     <meta property="og:description" content="Stop wasting tokens on unused tools. Fast TUI to enable only the MCP servers you need.">
     <meta property="og:url" content="https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/">
+    <meta property="og:image" content="https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/socialimage.png">
+    <meta property="og:image:alt" content="MCP Selector - Take Control of Your Claude Code Context">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Claude Code MCP Server Selector">
+    <meta name="twitter:description" content="Stop wasting tokens on unused tools. Fast TUI to enable only the MCP servers you need.">
+    <meta name="twitter:image" content="https://henkisdabro.github.io/Claude-Code-MCP-Server-Selector/socialimage.png">
 
     <title>Claude Code MCP Server Selector - Optimize Your Claude Context</title>
     <link rel="stylesheet" href="themes.css">
@@ -74,6 +94,7 @@
                 <a href="#features" class="nav-link">Features</a>
                 <a href="#demo" class="nav-link">Demo</a>
                 <a href="#install" class="nav-link">Install</a>
+                <a href="#update" class="nav-link">Update</a>
                 <a href="https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector" target="_blank" class="nav-link nav-link-github">
                     <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
                         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
@@ -558,6 +579,62 @@
                             <span>Navigate & filter</span>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Updating Section -->
+    <section class="section section-update" id="update">
+        <div class="container">
+            <h2 class="section-title">Keeping Up to Date</h2>
+            <p class="section-intro">
+                Stay current with the latest features and bug fixes.
+            </p>
+
+            <div class="update-container">
+                <div class="update-method">
+                    <h3>Manual Update (Recommended)</h3>
+                    <p>Update to the latest version with a single command:</p>
+                    <div class="code-block">
+                        <code id="update-command">npm update -g @henkisdabro/mcp-selector</code>
+                        <button class="copy-btn" data-target="update-command">Copy</button>
+                    </div>
+                    <p class="install-note">Or explicitly install the latest: <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">npm install -g @henkisdabro/mcp-selector@latest</code></p>
+                </div>
+
+                <div class="update-commands">
+                    <h3>Version Management</h3>
+                    <div class="usage-commands">
+                        <div class="command-example">
+                            <code>mcp --version</code>
+                            <span class="command-desc">Check current version</span>
+                        </div>
+                        <div class="command-example">
+                            <code>npm list -g @henkisdabro/mcp-selector</code>
+                            <span class="command-desc">Show installed package version</span>
+                        </div>
+                        <div class="command-example">
+                            <code>npm outdated -g @henkisdabro/mcp-selector</code>
+                            <span class="command-desc">Check for available updates</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="update-tips">
+                    <h3>Always-Latest Option</h3>
+                    <p>If you prefer to always use the latest version without managing updates, use <code>npx</code>:</p>
+                    <div class="code-block">
+                        <code id="npx-command">npx @henkisdabro/mcp-selector</code>
+                        <button class="copy-btn" data-target="npx-command">Copy</button>
+                    </div>
+                    <p class="install-note">This fetches the latest version each time (with caching for performance).</p>
+                </div>
+
+                <div class="update-note">
+                    <h4>About Automatic Updates</h4>
+                    <p>npm does not support automatic updates for global packages - this is intentional to prevent breaking changes from being introduced without user awareness.</p>
+                    <p><strong>Recommended:</strong> Check for updates periodically with <code>npm outdated -g</code> or <a href="https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector/releases" target="_blank">subscribe to GitHub releases</a>.</p>
                 </div>
             </div>
         </div>
