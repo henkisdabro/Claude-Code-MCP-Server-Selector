@@ -9,7 +9,7 @@
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
 
-> **v2.2.0**: Upgrade to React 19 and Ink 6. Update all dependencies to latest versions.
+> **v2.3.0**: Fix plugin state resolution with priority-aware precedence. Improve CLI argument handling with passThroughOptions.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 

@@ -417,4 +417,69 @@ describe('runtime-disable handling', () => {
     // The runtime-disable only affects direct servers for ORANGE state
     expect(result[0]?.state).toBe('on');
   });
+
+  it('should disable plugin when disabledMcpServers has higher priority than enabledPlugins', () => {
+    // This tests the persistence fix: when user-level has enabledPlugins: false (priority 1)
+    // and local-level has disabledMcpServers (priority 3), the local disable should win
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'fetch:mcp-fetch@wookstar-plugins',
+        scope: 'user',
+        file: 'installed_plugins.json',
+        sourceType: 'plugin',
+      },
+      {
+        type: 'disable-plugin', // User-level enabledPlugins: false
+        server: 'mcp-fetch@wookstar-plugins',
+        scope: 'user',
+        file: '~/.claude/settings.json',
+        sourceType: 'plugin',
+      },
+      {
+        type: 'runtime-disable', // Local-level disabledMcpServers
+        server: 'plugin:mcp-fetch:fetch',
+        scope: 'local',
+        file: '~/.claude.json',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    // Local disabledMcpServers (priority 3) > user enabledPlugins (priority 1)
+    // Plugin should be disabled
+    expect(result[0]?.state).toBe('off');
+  });
+
+  it('should enable plugin when enabledPlugins has higher priority than disabledMcpServers', () => {
+    // When local enabledPlugins: true (priority 3) overrides user disabledMcpServers
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'fetch:mcp-fetch@wookstar-plugins',
+        scope: 'user',
+        file: 'installed_plugins.json',
+        sourceType: 'plugin',
+      },
+      {
+        type: 'runtime-disable', // User-level disabledMcpServers
+        server: 'plugin:mcp-fetch:fetch',
+        scope: 'user',
+        file: '~/.claude.json',
+      },
+      {
+        type: 'enable', // Local-level enabledPlugins: true
+        server: 'mcp-fetch@wookstar-plugins',
+        scope: 'local',
+        file: '.claude/settings.local.json',
+        sourceType: 'plugin',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    // Local enabledPlugins (priority 3) > user disabledMcpServers (priority 1)
+    // Plugin should be enabled
+    expect(result[0]?.state).toBe('on');
+  });
 });

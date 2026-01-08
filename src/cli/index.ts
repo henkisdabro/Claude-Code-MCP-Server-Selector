@@ -15,7 +15,7 @@
 
 import { Command } from 'commander';
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 
 // Capture Claude args passed after -- separator
 const dashDashIndex = process.argv.indexOf('--');
@@ -34,20 +34,22 @@ program
   .name('mcp')
   .description('MCP Server Selector TUI for Claude Code\n\nClaude flags (--resume, --dangerously-skip-permissions, etc.) are passed through.')
   .version(VERSION)
-  .allowUnknownOption(); // Allow Claude flags to pass through
+  .allowUnknownOption() // Allow Claude flags to pass through
+  .enablePositionalOptions(); // Required for passThroughOptions on subcommands
 
 // Default TUI mode
 program
   .command('tui', { isDefault: true, hidden: true })
   .description('Launch interactive TUI (default)')
+  .argument('[claudeArgs...]', 'Arguments passed to Claude (e.g., --dangerously-skip-permissions)')
   .option('--strict-disable', 'Convert ORANGE servers to RED before launching Claude')
   .option('-q, --quiet', 'Suppress non-essential output')
   .option('--no-launch', 'Do not launch Claude after saving (for testing)')
   .allowUnknownOption() // Allow Claude flags to pass through
-  .action(async (options, command) => {
-    // Collect unknown options (Claude flags) from command.args
-    const unknownFlags = command.args.filter((arg: string) => arg.startsWith('-'));
-    const claudeArgs = [...unknownFlags, ...postDashArgs];
+  .passThroughOptions() // Stop parsing options after first positional
+  .action(async (claudeArgsFromCommand: string[], options) => {
+    // Combine arguments from command line and post-dash args
+    const claudeArgs = [...claudeArgsFromCommand, ...postDashArgs];
     const { runTui } = await import('./commands/tui.js');
     await runTui({ ...options, claudeArgs, launch: options.launch !== false });
   });

@@ -57,8 +57,9 @@ export function resolveServers(
   // Map 2: Enable/disable state
   const states = new Map<string, StateEntry>();
 
-  // Map 3: Track if server is in disabledMcpServers (for ORANGE state)
-  const disabledMcpServers = new Set<string>();
+  // Map 3: Track disabledMcpServers entries with priority
+  // Used for ORANGE state (direct servers) AND plugin disable (when higher priority than enabledPlugins)
+  const disabledMcpServersMap = new Map<string, { priority: number }>();
 
   // Map 4: Track plugin enable/disable state (pluginName@marketplace -> state)
   // This is separate because enabledPlugins uses plugin names, not server names
@@ -117,14 +118,17 @@ export function resolveServers(
 
       case 'runtime-disable': {
         // Runtime-level disable (from disabledMcpServers)
-        // This only sets runtime=stopped, doesn't affect config state
-        // Track for later application to runtime status
+        // For direct servers: sets runtime=stopped (ORANGE state)
+        // For plugins: disables them (when higher priority than enabledPlugins)
         //
         // Handle both formats:
         // - plugin:pluginName:serverKey (Claude's format)
         // - serverKey:pluginName@marketplace (our internal format)
         // - plain server name (for non-plugin servers)
-        disabledMcpServers.add(item.server);
+        const existingDisable = disabledMcpServersMap.get(item.server);
+        if (!existingDisable || priority >= existingDisable.priority) {
+          disabledMcpServersMap.set(item.server, { priority });
+        }
 
         // If it's plugin:X:Y format, also add our internal format for matching
         if (item.server.startsWith('plugin:')) {
@@ -132,7 +136,11 @@ export function resolveServers(
           if (parts.length === 3) {
             const [, pluginName, serverKey] = parts;
             // Add pattern that will match: serverKey:pluginName@*
-            disabledMcpServers.add(`${serverKey}:${pluginName}`);
+            const pattern = `${serverKey}:${pluginName}`;
+            const existingPattern = disabledMcpServersMap.get(pattern);
+            if (!existingPattern || priority >= existingPattern.priority) {
+              disabledMcpServersMap.set(pattern, { priority });
+            }
           }
         }
         break;
@@ -161,32 +169,40 @@ export function resolveServers(
   // Merge definitions with states
   const servers: Server[] = [];
 
-  // Helper to check if a server is in disabledMcpServers
+  // Helper to check if a server is in disabledMcpServers and get its priority
   // Handles format matching for plugin servers
-  const isInDisabledMcpServers = (serverName: string): boolean => {
+  // Returns { found: true, priority } or { found: false }
+  const getDisabledMcpServersEntry = (serverName: string): { found: boolean; priority?: number } => {
     // Direct match
-    if (disabledMcpServers.has(serverName)) return true;
+    const direct = disabledMcpServersMap.get(serverName);
+    if (direct) return { found: true, priority: direct.priority };
 
     // For plugin servers with format: serverKey:pluginName@marketplace
     // Check if serverKey:pluginName matches (pattern we added during runtime-disable)
     const atIdx = serverName.indexOf('@');
     if (atIdx !== -1) {
       const beforeAt = serverName.substring(0, atIdx);
-      if (disabledMcpServers.has(beforeAt)) return true;
+      const pattern = disabledMcpServersMap.get(beforeAt);
+      if (pattern) return { found: true, priority: pattern.priority };
     }
 
-    return false;
+    return { found: false };
   };
 
-  // Helper to check if a plugin is enabled based on enabledPlugins
-  // Returns: true = enabled, false = disabled, null = not specified (default enabled)
-  const getPluginEnabledState = (serverName: string): boolean | null => {
+  // Legacy helper for simple boolean check (backwards compatibility)
+  const isInDisabledMcpServers = (serverName: string): boolean => {
+    return getDisabledMcpServersEntry(serverName).found;
+  };
+
+  // Helper to get plugin state from enabledPlugins with priority
+  // Returns: { enabled: boolean, priority: number } or null if not specified
+  const getPluginEnabledStateWithPriority = (serverName: string): { enabled: boolean; priority: number } | null => {
     const pluginKey = getPluginKey(serverName);
     if (!pluginKey) return null;
 
     const state = pluginStates.get(pluginKey);
     if (!state) return null;
-    return state.enabled;
+    return { enabled: state.enabled, priority: state.priority };
   };
 
   for (const [name, { def }] of definitions) {
@@ -197,12 +213,34 @@ export function resolveServers(
     let state: ServerState;
 
     // For plugin servers, enabledPlugins is the primary control mechanism
+    // BUT disabledMcpServers can override if it has higher priority
     if (def.sourceType === 'plugin') {
-      const pluginEnabled = getPluginEnabledState(name);
-      if (pluginEnabled === true) {
+      const pluginState = getPluginEnabledStateWithPriority(name);
+      const disabledEntry = getDisabledMcpServersEntry(name);
+
+      // Check if disabledMcpServers overrides enabledPlugins
+      // This happens when our tool saves plugin disable state to ~/.claude.json projects[cwd]
+      // which has 'local' scope (priority 3), higher than user settings (priority 1)
+      //
+      // At equal priority, enabledPlugins wins because it's the primary control mechanism.
+      // disabledMcpServers only overrides when it has strictly HIGHER priority.
+      if (disabledEntry.found && disabledEntry.priority !== undefined) {
+        const enabledPriority = pluginState?.priority ?? -1;
+        if (disabledEntry.priority > enabledPriority) {
+          // disabledMcpServers has strictly higher priority - plugin is disabled
+          state = 'off';
+        } else if (pluginState?.enabled === true) {
+          // enabledPlugins has equal or higher priority and says enabled
+          state = 'on';
+        } else {
+          // enabledPlugins has equal or higher priority and says disabled (or not specified)
+          // OR no enabledPlugins entry exists - use disabledMcpServers
+          state = 'off';
+        }
+      } else if (pluginState?.enabled === true) {
         // Plugin explicitly enabled in enabledPlugins -> GREEN (on)
         state = 'on';
-      } else if (pluginEnabled === false) {
+      } else if (pluginState?.enabled === false) {
         // Plugin explicitly disabled in enabledPlugins -> RED (off)
         // Note: Setting to false also hides the plugin from Claude's UI
         state = 'off';
