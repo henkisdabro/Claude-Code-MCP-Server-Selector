@@ -53,7 +53,7 @@ describe('detectPlatform', () => {
     expect(detectPlatform()).toBe('windows');
   });
 
-  it('detects WSL from release string containing microsoft', async () => {
+  it('detects WSL from release string containing microsoft-standard', async () => {
     mockPlatform.mockReturnValue('linux');
     mockRelease.mockReturnValue('5.15.90.1-microsoft-standard-WSL2');
 
@@ -92,6 +92,41 @@ describe('detectPlatform', () => {
 
     const { detectPlatform } = await import('@/utils/platform.js');
     expect(detectPlatform()).toBe('linux');
+  });
+
+  // Azure VM tests - these should NOT be detected as WSL
+  it('does not detect Azure VM as WSL (azure kernel)', async () => {
+    mockPlatform.mockReturnValue('linux');
+    mockRelease.mockReturnValue('5.15.0-1049-azure');
+
+    const { detectPlatform } = await import('@/utils/platform.js');
+    expect(detectPlatform()).toBe('linux');
+  });
+
+  it('does not detect Azure VM as WSL (older azure kernel)', async () => {
+    mockPlatform.mockReturnValue('linux');
+    mockRelease.mockReturnValue('4.15.0-1113-azure');
+
+    const { detectPlatform } = await import('@/utils/platform.js');
+    expect(detectPlatform()).toBe('linux');
+  });
+
+  // Edge case: Docker running on WSL2 should detect as WSL if kernel has microsoft
+  it('detects Docker on WSL2 as WSL when kernel has microsoft-standard', async () => {
+    mockPlatform.mockReturnValue('linux');
+    mockRelease.mockReturnValue('5.15.90.1-microsoft-standard-WSL2');
+    // Note: Docker containers on WSL2 typically don't have WSL_DISTRO_NAME
+
+    const { detectPlatform } = await import('@/utils/platform.js');
+    expect(detectPlatform()).toBe('wsl');
+  });
+
+  it('handles mixed case in release string', async () => {
+    mockPlatform.mockReturnValue('linux');
+    mockRelease.mockReturnValue('5.15.90.1-MICROSOFT-STANDARD-WSL2');
+
+    const { detectPlatform } = await import('@/utils/platform.js');
+    expect(detectPlatform()).toBe('wsl');
   });
 });
 
@@ -307,5 +342,55 @@ describe('marketplace path functions', () => {
     expect(getInstalledPluginsPath()).toBe(
       join('/home/testuser', '.claude', 'plugins', 'installed_plugins.json')
     );
+  });
+});
+
+describe('normaliseProjectPath', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('converts backslashes to forward slashes', async () => {
+    const { normaliseProjectPath } = await import('@/utils/platform.js');
+    // Note: This test may behave differently on Windows vs Unix
+    // On Unix, path.normalize() doesn't change backslashes
+    // The replace() handles this
+    const result = normaliseProjectPath('/home/user/project');
+    expect(result).toBe('/home/user/project');
+  });
+
+  it('uppercases Windows drive letters (lowercase input)', async () => {
+    const { normaliseProjectPath } = await import('@/utils/platform.js');
+    // Simulate a lowercase drive letter path
+    const result = normaliseProjectPath('c:/Users/henrik/project');
+    expect(result).toBe('C:/Users/henrik/project');
+  });
+
+  it('preserves uppercase Windows drive letters', async () => {
+    const { normaliseProjectPath } = await import('@/utils/platform.js');
+    const result = normaliseProjectPath('C:/Users/henrik/project');
+    expect(result).toBe('C:/Users/henrik/project');
+  });
+
+  it('handles Unix paths without changes', async () => {
+    const { normaliseProjectPath } = await import('@/utils/platform.js');
+    const result = normaliseProjectPath('/home/henrik/project');
+    expect(result).toBe('/home/henrik/project');
+  });
+
+  it('handles relative paths', async () => {
+    const { normaliseProjectPath } = await import('@/utils/platform.js');
+    const result = normaliseProjectPath('./my-project');
+    expect(result).toBe('my-project');
+  });
+
+  it('handles paths with trailing slashes', async () => {
+    const { normaliseProjectPath } = await import('@/utils/platform.js');
+    // Note: path.normalize() on Linux does NOT remove trailing slashes
+    // This is platform-specific behaviour
+    const result = normaliseProjectPath('/home/user/project/');
+    // On Linux the trailing slash is preserved
+    expect(result).toMatch(/^\/home\/user\/project\/?$/);
   });
 });

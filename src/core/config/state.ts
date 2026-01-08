@@ -3,17 +3,65 @@
  *
  * Saves server state changes back to the appropriate configuration files.
  * Follows the control array placement rules from CLAUDE.md.
+ *
+ * Uses file locking to prevent concurrent access issues when multiple
+ * instances of the tool or CLI commands run simultaneously.
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join, normalize } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import lockfile from 'proper-lockfile';
 import type { Server, SettingsSchema, ClaudeJsonSchema } from '@/types/index.js';
-import { getProjectSettingsPath } from '@/utils/platform.js';
+import { getProjectSettingsPath, normaliseProjectPath } from '@/utils/platform.js';
 import { getPluginKey, getPluginDisableFormat } from '@/utils/plugin.js';
 import { parseSettingsJson, parseClaudeJson } from './parser.js';
 import { atomicWriteJson } from './writer.js';
 import { getDisplayState } from '../servers/toggle.js';
+
+/**
+ * Lock options for file locking
+ * - retries: Retry up to 5 times with exponential backoff
+ * - stale: Consider lock stale after 10 seconds (for crashed processes)
+ */
+const LOCK_OPTIONS = {
+  retries: {
+    retries: 5,
+    minTimeout: 100,
+    maxTimeout: 1000,
+  },
+  stale: 10000, // 10 seconds
+};
+
+/**
+ * Acquire a file lock, creating the file if it doesn't exist
+ *
+ * @param filePath - Path to lock
+ * @returns Release function to call when done
+ */
+async function acquireLock(filePath: string): Promise<() => Promise<void>> {
+  // Ensure directory exists
+  const dir = dirname(filePath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  // Create file if it doesn't exist (lockfile requires the file to exist)
+  if (!existsSync(filePath)) {
+    writeFileSync(filePath, '{}', 'utf-8');
+  }
+
+  try {
+    return await lockfile.lock(filePath, LOCK_OPTIONS);
+  } catch (error) {
+    // If locking fails (e.g., on network drives), proceed without lock
+    // This is a fallback to avoid blocking users on unsupported filesystems
+    console.warn(`Warning: Could not acquire lock on ${filePath}: ${error}`);
+    return async () => {
+      // No-op release function
+    };
+  }
+}
 
 /**
  * Save server states to settings files
@@ -44,18 +92,26 @@ export async function saveServerStates(
     (s) => s.sourceType === 'plugin' && !s.flags.enterprise
   );
 
-  // Get current settings
+  // Get paths for both config files we'll update
   const settingsPath = getProjectSettingsPath(cwd, true);
-  let settings: SettingsSchema = {};
+  const claudeJsonPath = join(homedir(), '.claude.json');
+
+  // Acquire locks on both files to prevent concurrent modifications
+  const releaseSettingsLock = await acquireLock(settingsPath);
+  const releaseClaudeJsonLock = await acquireLock(claudeJsonPath);
 
   try {
-    const existing = await parseSettingsJson(settingsPath);
-    if (existing) {
-      settings = existing;
+    // Get current settings (inside lock)
+    let settings: SettingsSchema = {};
+
+    try {
+      const existing = await parseSettingsJson(settingsPath);
+      if (existing) {
+        settings = existing;
+      }
+    } catch {
+      // Start with empty settings
     }
-  } catch {
-    // Start with empty settings
-  }
 
   // Build MCPJSON arrays
   const enabledMcpjsonServers: string[] = [];
@@ -163,8 +219,8 @@ export async function saveServerStates(
 
   // Update ~/.claude.json for ORANGE state (disabledMcpServers)
   const claudeJsonPath = join(homedir(), '.claude.json');
-  // Normalise cwd and convert to forward slashes (Claude Code uses forward slashes on all platforms)
-  const normalizedCwd = normalize(cwd).replace(/\\/g, '/');
+  // Normalise cwd for Claude Code project key lookup
+  const normalizedCwd = normaliseProjectPath(cwd);
   try {
     let claudeJson: ClaudeJsonSchema = {};
     const existing = await parseClaudeJson(claudeJsonPath);
@@ -193,7 +249,12 @@ export async function saveServerStates(
     errors.push(`Failed to update ${claudeJsonPath}: ${error}`);
   }
 
-  return { saved, errors };
+    return { saved, errors };
+  } finally {
+    // Release locks in reverse order of acquisition
+    await releaseClaudeJsonLock();
+    await releaseSettingsLock();
+  }
 }
 
 /**

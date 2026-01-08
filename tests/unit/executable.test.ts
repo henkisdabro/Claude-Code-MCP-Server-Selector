@@ -128,7 +128,13 @@ describe('findExecutable', () => {
         }
         throw new Error('ENOENT');
       });
-      mockLstatSync.mockReturnValue({ isSymbolicLink: () => true } as fs.Stats);
+      // First path is a symlink, target is a regular file
+      mockLstatSync.mockImplementation((path) => {
+        if (path === '/usr/local/bin/claude') {
+          return { isSymbolicLink: () => true } as fs.Stats;
+        }
+        return { isSymbolicLink: () => false } as fs.Stats;
+      });
       mockReadlinkSync.mockReturnValue('/opt/claude/bin/claude');
       mockExistsSync.mockImplementation((path) => {
         return path === '/opt/claude/bin/claude';
@@ -145,7 +151,13 @@ describe('findExecutable', () => {
         }
         throw new Error('ENOENT');
       });
-      mockLstatSync.mockReturnValue({ isSymbolicLink: () => true } as fs.Stats);
+      // First path is a symlink, target is a regular file
+      mockLstatSync.mockImplementation((path) => {
+        if (path === '/usr/local/bin/claude') {
+          return { isSymbolicLink: () => true } as fs.Stats;
+        }
+        return { isSymbolicLink: () => false } as fs.Stats;
+      });
       mockReadlinkSync.mockReturnValue('../lib/claude/bin/claude');
       mockExistsSync.mockImplementation((path) => {
         // Resolved path: /usr/local/lib/claude/bin/claude

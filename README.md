@@ -9,7 +9,7 @@
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
 
-> **v2.0.3**: Cross-platform improvements for macOS and Windows PowerShell, including proper path normalisation and keyboard shortcut support.
+> **v2.0.3**: Cross-platform improvements including Windows drive letter normalisation, improved WSL detection (avoiding Azure VM false positives), file locking for concurrent access protection, symlink depth protection, and plugin name validation.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 
@@ -48,7 +48,7 @@ Claude Code MCP Server Selector solves this: exit Claude, run `mcp`, enable only
 - **Session Awareness** - Detects running inside Claude session and warns appropriately
 - **Enterprise Support** - 🏢 Centralised MCP deployment with allowlist/denylist/command/URL matching
 - **Smart Migration** - Automatically migrate global servers to project-level control
-- **Safe by Design** - Atomic updates, automatic backups, explicit consent for global changes, lockdown mode
+- **Safe by Design** - Atomic updates, automatic backups, file locking for concurrent access, explicit consent for global changes, lockdown mode
 - **Cross-Platform** - Works on Linux, macOS, and Windows (including PowerShell)
 - **npm Package** - Simple installation via npm/npx, Node.js 20+ required
 
@@ -952,8 +952,18 @@ npm run build
 1. **Speed** - Sub-second launch, instant interactions
 2. **Safety** - Atomic writes, validation, never corrupt configs
 3. **Clarity** - Always show current vs pending state
-4. **Cross-Platform** - Works on Linux, macOS, and Windows
+4. **Cross-Platform** - Works on Linux, macOS, Windows, and WSL
 5. **Type Safety** - Full TypeScript with strict mode
+
+### Cross-Platform Reliability
+
+The tool handles platform-specific edge cases:
+
+- **Windows path normalisation** - Converts backslashes to forward slashes and uppercases drive letters to match Claude Code's format
+- **WSL detection** - Specifically detects `microsoft-standard` or `wsl` in kernel release to avoid false positives on Azure VMs
+- **File locking** - Uses advisory locks with retry and stale detection for concurrent access protection
+- **Symlink resolution** - Follows symlinks with depth protection (max 10 levels) to prevent infinite loops
+- **Executable detection** - Cross-platform PATH searching without shell commands, with security checks for path traversal
 
 ## Quick Reference
 

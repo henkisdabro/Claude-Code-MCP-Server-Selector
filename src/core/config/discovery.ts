@@ -7,7 +7,7 @@
 
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { join, normalize } from 'node:path';
+import { join } from 'node:path';
 import type {
   ConfigSource,
   RawDefinition,
@@ -22,6 +22,7 @@ import {
   getProjectMcpJsonPath,
   getMarketplacesDir,
   getInstalledPluginsPath,
+  normaliseProjectPath,
 } from '@/utils/platform.js';
 import {
   parseClaudeJson,
@@ -31,6 +32,46 @@ import {
   parseInstalledPlugins,
   parseMarketplaceJson,
 } from './parser.js';
+
+/**
+ * Extract MCP servers from parsed .mcp.json data
+ *
+ * Plugin .mcp.json files can have servers in two formats:
+ * - { "mcpServers": { "name": {...} } } - standard format
+ * - { "name": {...} } - root-level format (used by claude-plugins-official)
+ *
+ * @param mcpData - Parsed .mcp.json content
+ * @returns Server definitions map or null if none found
+ */
+function extractMcpServers(
+  mcpData: Awaited<ReturnType<typeof parseMcpJson>>
+): Record<string, unknown> | null {
+  if (!mcpData) return null;
+
+  // Check for standard format first
+  if (mcpData.mcpServers && Object.keys(mcpData.mcpServers).length > 0) {
+    return mcpData.mcpServers;
+  }
+
+  // Check for root-level format
+  const rootServers: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(mcpData)) {
+    // Skip the mcpServers key itself (already checked above)
+    if (key === 'mcpServers') continue;
+
+    // A server definition must be an object with command/url/type
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (('command' in value) || ('url' in value) || ('type' in value))
+    ) {
+      rootServers[key] = value;
+    }
+  }
+
+  return Object.keys(rootServers).length > 0 ? rootServers : null;
+}
 
 /**
  * Discover all configuration sources
@@ -235,20 +276,25 @@ async function extractFromEnterprise(source: ConfigSource): Promise<RawDefinitio
 
 /**
  * Extract definitions from .mcp.json files
+ *
+ * Handles both formats:
+ * - { "mcpServers": { "name": {...} } } - standard format
+ * - { "name": {...} } - root-level format (used by some official plugins)
  */
 async function extractFromMcpJson(source: ConfigSource): Promise<RawDefinition[]> {
   const definitions: RawDefinition[] = [];
   const data = await parseMcpJson(source.path);
+  const servers = extractMcpServers(data);
 
-  if (data?.mcpServers) {
-    for (const [name, def] of Object.entries(data.mcpServers)) {
+  if (servers) {
+    for (const [name, def] of Object.entries(servers)) {
       definitions.push({
         type: 'def',
         server: name,
         scope: source.scope,
         file: source.path,
         sourceType: 'mcpjson',
-        definition: def,
+        definition: def as Record<string, unknown>,
       });
     }
   }
@@ -360,8 +406,8 @@ async function extractFromClaudeJson(
 
   // Project-specific configurations
   if (data.projects) {
-    // Normalise cwd and convert to forward slashes (Claude Code uses forward slashes on all platforms)
-    const normalisedCwd = normalize(cwd).replace(/\\/g, '/');
+    // Normalise cwd for Claude Code project key lookup
+    const normalisedCwd = normaliseProjectPath(cwd);
     // Find the current project entry
     const projectEntry = data.projects[normalisedCwd];
 
@@ -467,9 +513,10 @@ async function extractFromInstalledPlugins(source: ConfigSource): Promise<RawDef
     const cacheMcpPath = join(install.installPath, '.mcp.json');
     if (existsSync(cacheMcpPath)) {
       const mcpData = await parseMcpJson(cacheMcpPath);
-      if (mcpData?.mcpServers) {
+      const servers = extractMcpServers(mcpData);
+      if (servers) {
         mcpFilePath = cacheMcpPath;
-        mcpServers = mcpData.mcpServers;
+        mcpServers = servers;
       }
     }
 
@@ -490,9 +537,10 @@ async function extractFromInstalledPlugins(source: ConfigSource): Promise<RawDef
         const sourceMcpPath = join(marketplacesDir, marketplace, pluginDef.source, '.mcp.json');
         if (existsSync(sourceMcpPath)) {
           const mcpData = await parseMcpJson(sourceMcpPath);
-          if (mcpData?.mcpServers) {
+          const servers = extractMcpServers(mcpData);
+          if (servers) {
             mcpFilePath = sourceMcpPath;
-            mcpServers = mcpData.mcpServers;
+            mcpServers = servers;
           }
         }
       }
@@ -505,9 +553,10 @@ async function extractFromInstalledPlugins(source: ConfigSource): Promise<RawDef
           const refPath = join(marketplacesDir, marketplace, pluginDef.source || pluginName, pluginDef.mcpServers);
           if (existsSync(refPath)) {
             const mcpData = await parseMcpJson(refPath);
-            if (mcpData?.mcpServers) {
+            const servers = extractMcpServers(mcpData);
+            if (servers) {
               mcpFilePath = refPath;
-              mcpServers = mcpData.mcpServers;
+              mcpServers = servers;
             }
           }
         } else {
@@ -518,14 +567,15 @@ async function extractFromInstalledPlugins(source: ConfigSource): Promise<RawDef
       }
     }
 
-    // 3. Fallback: check marketplace/{pluginName}/.mcp.json directly
+    // 4. Fallback: check marketplace/{pluginName}/.mcp.json directly
     if (!mcpServers) {
       const directMcpPath = join(marketplacesDir, marketplace, pluginName, '.mcp.json');
       if (existsSync(directMcpPath)) {
         const mcpData = await parseMcpJson(directMcpPath);
-        if (mcpData?.mcpServers) {
+        const servers = extractMcpServers(mcpData);
+        if (servers) {
           mcpFilePath = directMcpPath;
-          mcpServers = mcpData.mcpServers;
+          mcpServers = servers;
         }
       }
     }

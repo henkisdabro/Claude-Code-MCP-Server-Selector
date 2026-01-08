@@ -209,3 +209,212 @@ describe('tracePrecedence', () => {
     expect(trace.resolved.state).toBeNull();
   });
 });
+
+describe('same-priority conflicts', () => {
+  it('should use last-wins for same priority definitions', () => {
+    // When two definitions have the same priority, the last one wins
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'fetch',
+        scope: 'local',
+        file: 'first.json',
+        sourceType: 'mcpjson',
+        definition: { command: 'first' },
+      },
+      {
+        type: 'def',
+        server: 'fetch',
+        scope: 'local',
+        file: 'second.json',
+        sourceType: 'mcpjson',
+        definition: { command: 'second' },
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.definitionFile).toBe('second.json');
+    expect(result[0]?.definition).toEqual({ command: 'second' });
+  });
+
+  it('should use last-wins for enable/disable at same priority', () => {
+    // When enable and disable are at same priority, last one wins
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'fetch',
+        scope: 'project',
+        file: './.mcp.json',
+        sourceType: 'mcpjson',
+      },
+      {
+        type: 'enable',
+        server: 'fetch',
+        scope: 'local',
+        file: 'settings.local.json',
+      },
+      {
+        type: 'disable',
+        server: 'fetch',
+        scope: 'local',
+        file: 'settings.local.json',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    // Last (disable) should win
+    expect(result[0]?.state).toBe('off');
+  });
+
+  it('should use last-wins for disable/enable at same priority (reverse order)', () => {
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'fetch',
+        scope: 'project',
+        file: './.mcp.json',
+        sourceType: 'mcpjson',
+      },
+      {
+        type: 'disable',
+        server: 'fetch',
+        scope: 'local',
+        file: 'settings.local.json',
+      },
+      {
+        type: 'enable',
+        server: 'fetch',
+        scope: 'local',
+        file: 'settings.local.json',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    // Last (enable) should win
+    expect(result[0]?.state).toBe('on');
+  });
+});
+
+describe('plugin state resolution', () => {
+  it('should default plugin servers to off when not in enabledPlugins', () => {
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'ide:developer-toolkit@claude-plugins',
+        scope: 'user',
+        file: 'installed_plugins.json',
+        sourceType: 'plugin',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    expect(result[0]?.state).toBe('off'); // Plugins default to off
+  });
+
+  it('should enable plugin server when in enabledPlugins', () => {
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'ide:developer-toolkit@claude-plugins',
+        scope: 'user',
+        file: 'installed_plugins.json',
+        sourceType: 'plugin',
+      },
+      {
+        type: 'enable',
+        server: 'developer-toolkit@claude-plugins',
+        scope: 'local',
+        file: 'settings.local.json',
+        sourceType: 'plugin',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    expect(result[0]?.state).toBe('on');
+  });
+
+  it('should disable plugin server when explicitly disabled in enabledPlugins', () => {
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'ide:developer-toolkit@claude-plugins',
+        scope: 'user',
+        file: 'installed_plugins.json',
+        sourceType: 'plugin',
+      },
+      {
+        type: 'disable-plugin',
+        server: 'developer-toolkit@claude-plugins',
+        scope: 'local',
+        file: 'settings.local.json',
+        sourceType: 'plugin',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    expect(result[0]?.state).toBe('off');
+  });
+});
+
+describe('runtime-disable handling', () => {
+  it('should set runtime to stopped for direct servers in disabledMcpServers', () => {
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'my-server',
+        scope: 'user',
+        file: '~/.claude.json',
+        sourceType: 'direct-global',
+      },
+      {
+        type: 'runtime-disable',
+        server: 'my-server',
+        scope: 'local',
+        file: '~/.claude.json',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    // Direct server in disabledMcpServers should be off
+    expect(result[0]?.state).toBe('off');
+  });
+
+  it('should handle plugin disable format in disabledMcpServers', () => {
+    const rawData: RawDefinition[] = [
+      {
+        type: 'def',
+        server: 'ide:developer-toolkit@claude-plugins',
+        scope: 'user',
+        file: 'installed_plugins.json',
+        sourceType: 'plugin',
+      },
+      {
+        type: 'enable',
+        server: 'developer-toolkit@claude-plugins',
+        scope: 'local',
+        file: 'settings.local.json',
+        sourceType: 'plugin',
+      },
+      {
+        type: 'runtime-disable',
+        server: 'plugin:developer-toolkit:ide',
+        scope: 'local',
+        file: '~/.claude.json',
+      },
+    ];
+
+    const result = resolveServers(rawData);
+
+    // Plugin enabled but runtime-disabled should still be 'on' (plugins don't support ORANGE)
+    // The runtime-disable only affects direct servers for ORANGE state
+    expect(result[0]?.state).toBe('on');
+  });
+});

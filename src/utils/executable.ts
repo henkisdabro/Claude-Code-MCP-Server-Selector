@@ -53,20 +53,42 @@ function findWindowsExecutable(basePath: string): string | null {
 }
 
 /**
- * Resolve a symlink, handling relative targets correctly
+ * Maximum symlink resolution depth to prevent infinite loops
+ * from circular symlinks
  */
-function resolveSymlink(linkPath: string): string | null {
+const MAX_SYMLINK_DEPTH = 10;
+
+/**
+ * Resolve a symlink, handling relative targets correctly
+ *
+ * Includes depth protection against circular symlinks which
+ * could cause infinite loops.
+ *
+ * @param linkPath - Path to resolve
+ * @param depth - Current recursion depth (default 0)
+ * @returns Resolved path or null if resolution fails
+ */
+function resolveSymlink(linkPath: string, depth: number = 0): string | null {
+  // Depth protection against circular symlinks
+  if (depth >= MAX_SYMLINK_DEPTH) {
+    console.warn(`Symlink resolution depth exceeded for: ${linkPath}`);
+    return null;
+  }
+
   try {
     const stats = lstatSync(linkPath);
     if (!stats.isSymbolicLink()) {
       return linkPath;
     }
     const target = readlinkSync(linkPath);
+
     // Handle relative symlinks by resolving against the link's directory
-    if (!isAbsolute(target)) {
-      return resolve(dirname(linkPath), target);
-    }
-    return target;
+    const resolvedTarget = isAbsolute(target)
+      ? target
+      : resolve(dirname(linkPath), target);
+
+    // Recursively resolve if the target is also a symlink
+    return resolveSymlink(resolvedTarget, depth + 1);
   } catch {
     return null;
   }
