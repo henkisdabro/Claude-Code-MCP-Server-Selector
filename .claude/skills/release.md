@@ -1,3 +1,25 @@
+---
+name: release
+description: Full release workflow with version bump, commit, tag, GitHub release, and automatic npm publish via OIDC
+model: claude-opus-4-5-20251101
+context: fork
+allowed-tools:
+  - Read
+  - Edit
+  - Write
+  - Bash(npm:*)
+  - Bash(git:*)
+  - Bash(gh:*)
+  - Bash(node:*)
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "git status --porcelain"
+      once: true
+---
+
 # Release Skill
 
 Automates the full release process: version bump, commit, tag, GitHub release, and npm publish.

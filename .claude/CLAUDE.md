@@ -186,3 +186,59 @@ This pattern is used in `state.ts`, `discovery.ts`, and `migration.ts`.
 - **Node.js version**: CI uses Node 24 (bundled npm 11.6.2 supports trusted publishing OIDC)
 - **Package engines**: `>=22.0.0` for broader user compatibility
 - **Platform matrix**: Tests run on ubuntu-latest, macos-latest, windows-latest
+
+## Claude Code v2.1.0 Features
+
+This project uses Claude Code v2.1.0 features for enhanced development workflow.
+
+### Skills
+
+Skills in `.claude/skills/` use frontmatter format:
+
+- `context: fork` - Run skill in isolated sub-agent context (used by `/release`)
+- `model` - Specify model for skill execution (e.g., `claude-opus-4-5-20251101`)
+- `allowed-tools` - YAML list of permitted tools
+- `hooks` - Skill-scoped hooks with `once: true` support at matcher level
+
+Skills are auto-discovered with hot-reload - no registration in settings.json needed.
+
+### Agents
+
+Custom agents in `.claude/agents/`:
+
+- `test-runner.md` - Fast test execution with Haiku model
+- `code-reviewer.md` - Code review with Sonnet model
+
+Agent frontmatter uses `tools` field (not `allowed-tools`) and `skills` field to grant skill access.
+
+### Hooks
+
+Skill-scoped hooks support `once: true` for one-time pre-flight checks:
+
+```yaml
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "git status --porcelain"
+      once: true  # At matcher level, NOT inside hooks array
+```
+
+**Note**: `once: true` only works for skills and slash commands, not agents or settings hooks.
+
+### Settings
+
+Permissions use conservative wildcard patterns:
+
+- `Bash(npm run:*)` instead of individual npm commands
+- `Bash(git add:*)`, `Bash(git commit:*)` for git operations
+- Skills auto-discovery means no `skills` array needed in settings.json
+
+### Key Syntax Differences
+
+| Component | Tools Field | Supports `once: true` |
+|-----------|-------------|----------------------|
+| Skills | `allowed-tools` | Yes (at matcher level) |
+| Agents | `tools` | No |
+| Commands | `allowed-tools` | Yes (at matcher level) |

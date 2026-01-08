@@ -1,14 +1,35 @@
 {
-  "skills": [
-    {
-      "name": "version-bump",
-      "path": ".claude/skills/version-bump.md",
-      "description": "Bump semantic version across all project files (package.json, CLI, README, docs)"
-    },
-    {
-      "name": "release",
-      "path": ".claude/skills/release.md",
-      "description": "Full release workflow: version bump, commit, tag, GitHub release, and automatic npm publish"
-    }
-  ]
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(gh auth:*)",
+      "Bash(gh release:*)",
+      "Bash(gh run:*)",
+      "Bash(gh pr:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git status:*)",
+      "Bash(git branch:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm install:*)",
+      "Bash(npm view:*)",
+      "Bash(node:*)",
+      "Bash(npx tsx:*)",
+      "Bash(chmod:*)",
+      "Bash(jq:*)",
+      "Bash(find:*)",
+      "Bash(xargs:*)",
+      "Bash(bats:*)",
+      "Bash(./mcp:*)",
+      "Bash(timeout:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "enableAllProjectMcpServers": true
 }

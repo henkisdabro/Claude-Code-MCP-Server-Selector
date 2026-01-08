@@ -1,3 +1,15 @@
+---
+name: version-bump
+description: Bump semantic version across all project files (package.json, CLI, README, docs)
+allowed-tools:
+  - Read
+  - Edit
+  - Bash(npm run build)
+  - Bash(npm test)
+  - Bash(npm install)
+  - Bash(node:*)
+---
+
 # Version Bump Skill
 
 Manages semantic versioning across the cc-mcp-launcher project. Ensures all version references are updated consistently when releasing new versions.
