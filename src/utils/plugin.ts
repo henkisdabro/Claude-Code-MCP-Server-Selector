@@ -5,7 +5,94 @@
  * - Server name: {serverKey}:{pluginName}@{marketplace}
  * - Plugin key (for enabledPlugins): {pluginName}@{marketplace}
  * - Disable format (for disabledMcpServers): plugin:{pluginName}:{serverKey}
+ *
+ * IMPORTANT: These formats assume:
+ * - Exactly one colon separating serverKey from pluginName
+ * - Exactly one @ separating pluginName from marketplace
+ * - No colons or @ symbols within the individual components
+ *
+ * Invalid formats (multiple colons/@ symbols) may cause parsing issues.
+ * Use validatePluginServerName() to check format validity.
  */
+
+/**
+ * Validate a plugin server name format
+ *
+ * Valid format: serverKey:pluginName@marketplace
+ * - Exactly one colon (between serverKey and pluginName)
+ * - Exactly one @ (between pluginName and marketplace)
+ * - No empty components
+ *
+ * @param serverName - The server name to validate
+ * @returns Object with valid flag and optional error message
+ */
+export function validatePluginServerName(serverName: string): {
+  valid: boolean;
+  error?: string;
+} {
+  if (!serverName || serverName.length === 0) {
+    return { valid: false, error: 'Server name is empty' };
+  }
+
+  const colonCount = (serverName.match(/:/g) || []).length;
+  const atCount = (serverName.match(/@/g) || []).length;
+
+  // Valid plugin server format requires exactly 1 colon and 1 @
+  if (colonCount !== 1) {
+    return {
+      valid: false,
+      error: `Expected exactly 1 colon, found ${colonCount}. Names with multiple colons are not supported.`,
+    };
+  }
+
+  if (atCount !== 1) {
+    return {
+      valid: false,
+      error: `Expected exactly 1 @ symbol, found ${atCount}. Names with multiple @ symbols are not supported.`,
+    };
+  }
+
+  const colonIdx = serverName.indexOf(':');
+  const atIdx = serverName.indexOf('@');
+
+  // Colon must come before @
+  if (colonIdx >= atIdx) {
+    return {
+      valid: false,
+      error: 'Invalid format: colon must appear before @ symbol',
+    };
+  }
+
+  // Check for empty components
+  const serverKey = serverName.substring(0, colonIdx);
+  const pluginName = serverName.substring(colonIdx + 1, atIdx);
+  const marketplace = serverName.substring(atIdx + 1);
+
+  if (!serverKey) {
+    return { valid: false, error: 'Server key is empty' };
+  }
+  if (!pluginName) {
+    return { valid: false, error: 'Plugin name is empty' };
+  }
+  if (!marketplace) {
+    return { valid: false, error: 'Marketplace is empty' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Check if a server name appears to be a plugin server format
+ * (has the expected colon:pluginName@marketplace structure)
+ *
+ * Note: This does basic structural check. Use validatePluginServerName()
+ * for full validation including edge cases.
+ */
+export function isPluginServer(serverName: string): boolean {
+  const colonIdx = serverName.indexOf(':');
+  const atIdx = serverName.indexOf('@');
+  return colonIdx !== -1 && atIdx > colonIdx;
+}
 
 /**
  * Extract plugin key from server name
@@ -125,13 +212,3 @@ export function getPluginName(serverName: string): string | null {
   return null;
 }
 
-/**
- * Check if a server name is a plugin server
- *
- * Plugin servers follow format: serverKey:pluginName@marketplace
- */
-export function isPluginServer(serverName: string): boolean {
-  const colonIdx = serverName.indexOf(':');
-  const atIdx = serverName.indexOf('@');
-  return colonIdx !== -1 && atIdx > colonIdx;
-}

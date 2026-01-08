@@ -8,6 +8,7 @@ allowed-tools:
   - Bash(npm test)
   - Bash(npm install)
   - Bash(node:*)
+user-invocable: false
 ---
 
 # Version Bump Skill

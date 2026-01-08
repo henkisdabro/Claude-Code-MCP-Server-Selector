@@ -65,6 +65,28 @@ Always use temp file + rename pattern for JSON updates. Never write directly.
 - Plugins with `enabledPlugins: true` are enabled and running
 - Plugins with `enabledPlugins: false` are disabled AND hidden from UI
 
+### MCP JSON Formats
+
+The `.mcp.json` file format supports two structures:
+
+**Standard format** (servers under `mcpServers` key):
+```json
+{
+  "mcpServers": {
+    "server-name": { "command": "node", "args": ["server.js"] }
+  }
+}
+```
+
+**Root-level format** (servers directly at root, used by claude-plugins-official):
+```json
+{
+  "server-name": { "command": "node", "args": ["server.js"] }
+}
+```
+
+Both formats are supported. Root-level format is detected by checking for objects with `command`, `url`, or `type` properties. If `mcpServers` key is present and non-empty, it takes precedence over root-level servers.
+
 ## 3-Way Toggle (Display States)
 
 RED (off) → GREEN (on) → ORANGE (paused) → RED
@@ -130,6 +152,74 @@ Test files in `tests/unit/`:
 - `executable.test.ts` - Cross-platform executable detection
 - `platform.test.ts` - Platform detection (Linux, macOS, Windows, WSL)
 
+Test files in `tests/integration/`:
+- `discovery.test.ts` - Full discovery pipeline with config sources and precedence resolution
+
+### End-to-End Testing Procedure
+
+To verify the tool works correctly with Claude Code, test all three server types:
+
+**1. Plugin Servers (Marketplace)**
+
+```bash
+# Check plugin state
+node dist/cli.js context-report | grep -A10 "plugin"
+
+# Toggle a plugin server
+node dist/cli.js disable fetch:mcp-fetch@wookstar-claude-code-plugins
+claude mcp list | grep fetch  # Should NOT appear
+
+node dist/cli.js enable fetch:mcp-fetch@wookstar-claude-code-plugins
+claude mcp list | grep fetch  # Should show "plugin:mcp-fetch:fetch"
+```
+
+**2. MCPJSON Servers (.mcp.json)**
+
+```bash
+# Create test server in project .mcp.json
+echo '{"mcpServers":{"test-mcp":{"command":"echo","args":["test"]}}}' > .mcp.json
+
+# Verify discovery
+node dist/cli.js context-report | grep test-mcp
+
+# Test toggle
+node dist/cli.js disable test-mcp
+# State stored in .claude/settings.local.json disabledMcpjsonServers
+
+node dist/cli.js enable test-mcp
+claude mcp list | grep test-mcp  # Should appear
+
+# Clean up
+rm .mcp.json
+```
+
+**3. Direct Servers (~/.claude.json)**
+
+```bash
+# Add test server to ~/.claude.json mcpServers
+jq '.mcpServers["test-direct"] = {"command":"echo","args":["test"]}' ~/.claude.json > tmp && mv tmp ~/.claude.json
+
+# Test toggle
+node dist/cli.js disable test-direct
+# State stored in ~/.claude.json .projects[cwd].disabledMcpServers
+
+node dist/cli.js enable test-direct
+claude mcp list | grep test-direct  # Should appear
+
+# Clean up
+jq 'del(.mcpServers["test-direct"])' ~/.claude.json > tmp && mv tmp ~/.claude.json
+```
+
+**State Storage Locations**
+
+| Server Type | Enable/Disable Storage |
+|-------------|------------------------|
+| Plugin | `.claude/settings.local.json` `enabledPlugins` |
+| MCPJSON | `.claude/settings.local.json` `enabledMcpjsonServers`/`disabledMcpjsonServers` |
+| Direct | `~/.claude.json` `.projects[cwd].disabledMcpServers` |
+
+**Note**: Changes to plugin `enabledPlugins` and MCPJSON servers take effect immediately in `claude mcp list`. Changes to direct server `disabledMcpServers` may require Claude Code restart.
+
 ## Output Destinations
 
 - MCPJSON state → `./.claude/settings.local.json`
@@ -144,8 +234,8 @@ The `executable.ts` utility finds executables without shell commands:
 - Uses `path.delimiter` for PATH splitting (`:` on Unix, `;` on Windows)
 - Checks `PATHEXT` on Windows for `.exe`, `.cmd`, `.bat` extensions
 - Uses `accessSync(X_OK)` on Unix to verify executable permission
-- Resolves symlinks (both absolute and relative targets)
-- Security: Rejects path traversal attempts and empty PATH entries
+- Resolves symlinks (both absolute and relative targets) with depth protection (max 10 levels)
+- Security: Rejects path traversal attempts, empty PATH entries, and circular symlinks
 
 ### macOS Keyboard Shortcuts
 
@@ -164,8 +254,10 @@ macOS Terminal.app by default sends Unicode characters for Option+key:
 The `platform.ts` utility detects:
 - `macos` - Darwin platform
 - `windows` - Win32 platform
-- `wsl` - Linux with Microsoft kernel or `WSL_DISTRO_NAME` env var
-- `linux` - Native Linux
+- `wsl` - Linux with `microsoft-standard` or `wsl` in kernel release, or `WSL_DISTRO_NAME` env var
+- `linux` - Native Linux (including Azure VMs which are NOT detected as WSL)
+
+**Note**: WSL detection is specific to avoid false positives on Azure Linux VMs which contain "microsoft" but not "microsoft-standard" in their kernel release string.
 
 ### Windows Path Handling
 
@@ -175,10 +267,34 @@ The `platform.ts` utility detects:
 
 These are different JSON keys, causing read/write mismatches. Solution:
 ```typescript
-const normalizedCwd = normalize(cwd).replace(/\\/g, '/');
+import { normaliseProjectPath } from '@/utils/platform.js';
+const normalizedCwd = normaliseProjectPath(cwd);
 ```
 
-This pattern is used in `state.ts`, `discovery.ts`, and `migration.ts`.
+The `normaliseProjectPath()` function handles:
+- Converts backslashes to forward slashes
+- Uppercases Windows drive letters (`c:/` → `C:/`)
+- Uses `path.normalize()` for consistent path resolution
+
+This function is used in `state.ts`, `discovery.ts`, and `migration.ts`.
+
+### Concurrent Access Protection
+
+File locking prevents race conditions when multiple instances access config files:
+- Uses `proper-lockfile` package for advisory file locking
+- Retries with exponential backoff (5 retries, 100-1000ms timeout)
+- Stale lock detection (10 second timeout)
+- Graceful fallback if locking fails (e.g., network drives)
+
+### Plugin Name Validation
+
+Plugin server names must follow the format `serverKey:pluginName@marketplace`:
+- Exactly 1 colon separating serverKey from pluginName
+- Exactly 1 @ symbol separating pluginName from marketplace
+- Colon must appear before @ symbol
+- No empty components (serverKey, pluginName, marketplace all required)
+
+Use `validatePluginServerName()` from `src/utils/plugin.ts` to validate before processing.
 
 ## CI/CD
 

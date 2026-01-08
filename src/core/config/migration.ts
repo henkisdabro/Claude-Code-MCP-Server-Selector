@@ -6,9 +6,9 @@
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, normalize } from 'node:path';
+import { join } from 'node:path';
 import type { Server } from '@/types/index.js';
-import { getClaudeJsonPath } from '@/utils/platform.js';
+import { getClaudeJsonPath, normaliseProjectPath } from '@/utils/platform.js';
 
 interface MigrationResult {
   success: boolean;
@@ -29,8 +29,8 @@ export async function migrateServerToProject(
   server: Server,
   cwd: string
 ): Promise<MigrationResult> {
-  // Normalise cwd and convert to forward slashes (Claude Code uses forward slashes on all platforms)
-  const normalizedCwd = normalize(cwd).replace(/\\/g, '/');
+  // Normalise cwd for Claude Code project key lookup
+  const normalizedCwd = normaliseProjectPath(cwd);
 
   // Validate server type
   if (!server.sourceType.startsWith('direct')) {

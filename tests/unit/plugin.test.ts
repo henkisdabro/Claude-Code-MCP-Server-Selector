@@ -13,6 +13,7 @@ import {
   getServerKey,
   getPluginName,
   isPluginServer,
+  validatePluginServerName,
 } from '../../src/utils/plugin.js';
 
 describe('getPluginKey', () => {
@@ -131,5 +132,103 @@ describe('isPluginServer', () => {
     expect(isPluginServer('simple-server')).toBe(false);
     expect(isPluginServer('server@marketplace')).toBe(false);
     expect(isPluginServer('server:name')).toBe(false);
+  });
+});
+
+describe('validatePluginServerName', () => {
+  it('should validate standard plugin server names', () => {
+    expect(validatePluginServerName('ide:developer-toolkit@claude-code-plugins'))
+      .toEqual({ valid: true });
+    expect(validatePluginServerName('fetch:mcp-fetch@claude-skills'))
+      .toEqual({ valid: true });
+  });
+
+  it('should reject empty strings', () => {
+    const result = validatePluginServerName('');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('empty');
+  });
+
+  it('should reject names with multiple colons', () => {
+    const result = validatePluginServerName('api:server:name@marketplace');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('multiple colons');
+  });
+
+  it('should reject names with multiple @ symbols', () => {
+    const result = validatePluginServerName('api:user@domain@marketplace');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('multiple @');
+  });
+
+  it('should reject scoped npm packages (contain @)', () => {
+    // Scoped packages like @company/plugin have @ before the plugin name
+    const result = validatePluginServerName('api:@company/plugin@marketplace');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('multiple @');
+  });
+
+  it('should reject names with no colon', () => {
+    const result = validatePluginServerName('plugin@marketplace');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Expected exactly 1 colon');
+  });
+
+  it('should reject names with no @ symbol', () => {
+    const result = validatePluginServerName('server:plugin');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Expected exactly 1 @');
+  });
+
+  it('should reject names where @ comes before colon', () => {
+    const result = validatePluginServerName('server@market:plugin');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('colon must appear before @');
+  });
+
+  it('should reject names with empty components', () => {
+    expect(validatePluginServerName(':plugin@marketplace').valid).toBe(false);
+    expect(validatePluginServerName('server:@marketplace').valid).toBe(false);
+    expect(validatePluginServerName('server:plugin@').valid).toBe(false);
+  });
+});
+
+describe('edge cases with special characters', () => {
+  describe('getPluginKey with edge cases', () => {
+    it('should handle empty string', () => {
+      expect(getPluginKey('')).toBeNull();
+    });
+
+    it('should handle names with only colon', () => {
+      expect(getPluginKey(':')).toBeNull();
+    });
+
+    it('should handle names with only @', () => {
+      expect(getPluginKey('@')).toBeNull();
+    });
+  });
+
+  describe('getPluginDisableFormat with edge cases', () => {
+    it('should handle empty string', () => {
+      expect(getPluginDisableFormat('')).toBe('');
+    });
+
+    it('should handle minimal valid format', () => {
+      expect(getPluginDisableFormat('a:b@c')).toBe('plugin:b:a');
+    });
+  });
+
+  describe('parsePluginDisableFormat with edge cases', () => {
+    it('should handle plugin: prefix with too many parts', () => {
+      // Multiple colons in disable format - should return null
+      expect(parsePluginDisableFormat('plugin:name:with:extra:colons')).toBeNull();
+    });
+
+    it('should handle empty parts', () => {
+      // parsePluginDisableFormat allows empty strings (returns { pluginName: '', serverKey: '' })
+      // This is technically valid according to the split logic
+      const result = parsePluginDisableFormat('plugin::');
+      expect(result).toEqual({ pluginName: '', serverKey: '' });
+    });
   });
 });

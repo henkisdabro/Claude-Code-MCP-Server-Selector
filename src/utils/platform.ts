@@ -5,12 +5,17 @@
  */
 
 import { homedir, platform, release } from 'node:os';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 
 export type Platform = 'linux' | 'macos' | 'windows' | 'wsl';
 
 /**
  * Detect the current platform
+ *
+ * WSL detection is specific to avoid false positives:
+ * - WSL kernels contain 'microsoft-standard' or 'wsl' in release string
+ * - Azure VMs have 'azure' kernels which should NOT be detected as WSL
+ * - Hyper-V VMs may have 'microsoft' but not 'microsoft-standard'
  */
 export function detectPlatform(): Platform {
   const os = platform();
@@ -21,13 +26,22 @@ export function detectPlatform(): Platform {
   // Check for WSL
   if (os === 'linux') {
     const osRelease = release().toLowerCase();
-    if (osRelease.includes('microsoft') || osRelease.includes('wsl')) {
+
+    // Check for specific WSL indicators in kernel release string
+    // - 'wsl' appears in custom WSL builds
+    // - 'microsoft-standard' is the official WSL2 kernel identifier
+    // Note: We don't match just 'microsoft' to avoid potential false positives
+    // from other Microsoft-related kernels (e.g., Hyper-V guest kernels)
+    if (osRelease.includes('wsl') || osRelease.includes('microsoft-standard')) {
       return 'wsl';
     }
+
     // Also check WSL environment variable (more reliable in some cases)
+    // This is set by WSL itself and is the most authoritative indicator
     if (process.env.WSL_DISTRO_NAME) {
       return 'wsl';
     }
+
     return 'linux';
   }
 
@@ -136,4 +150,23 @@ export function getMarketplacesDir(): string {
  */
 export function getInstalledPluginsPath(): string {
   return join(homedir(), '.claude', 'plugins', 'installed_plugins.json');
+}
+
+/**
+ * Normalise a path for use as a Claude Code project key
+ *
+ * Claude Code stores project paths with:
+ * - Forward slashes on all platforms
+ * - Uppercase drive letters on Windows (e.g., "C:/Users/..." not "c:/Users/...")
+ *
+ * This ensures consistent key lookup/storage across different shell environments
+ * (PowerShell may use lowercase, cmd.exe uppercase, etc.)
+ *
+ * @param cwd - The current working directory to normalise
+ * @returns Normalised path suitable for use as a project key
+ */
+export function normaliseProjectPath(cwd: string): string {
+  return normalize(cwd)
+    .replace(/\\/g, '/')
+    .replace(/^[a-z]:/, (m: string) => m.toUpperCase());
 }
