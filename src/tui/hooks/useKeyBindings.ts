@@ -276,6 +276,8 @@ export function useKeyBindings(handlers: KeyBindingHandlers): void {
     if (input === '2') handlers.onSetFilter('direct');
     if (input === '3') handlers.onSetFilter('plugin');
     if (input === '4') handlers.onSetFilter('enterprise');
-    if (input === '0') handlers.onSetFilter('all');
+    if (input === '0' || input === 'a') handlers.onSetFilter('all');
+    if (input === 'b') handlers.onSetFilter('blocked');
+    if (input === 'o') handlers.onSetFilter('orange');
   });
 }

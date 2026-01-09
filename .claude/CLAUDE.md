@@ -38,7 +38,7 @@ Setting `enabledPlugins["name"] = false` makes plugin disappear from Claude UI e
 
 ### Plugin Key Format
 
-`enabledPlugins` uses `pluginName@marketplace` format (e.g., `developer-toolkit@wookstar-claude-code-plugins`), NOT the full server name format (`serverKey:pluginName@marketplace`).
+`enabledPlugins` uses `pluginName@marketplace` format (e.g., `developer-toolkit@wookstar-claude-plugins`), NOT the full server name format (`serverKey:pluginName@marketplace`).
 
 ### Dual Precedence
 
@@ -166,10 +166,10 @@ To verify the tool works correctly with Claude Code, test all three server types
 node dist/cli.js context-report | grep -A10 "plugin"
 
 # Toggle a plugin server
-node dist/cli.js disable fetch:mcp-fetch@wookstar-claude-code-plugins
+node dist/cli.js disable fetch:mcp-fetch@wookstar-claude-plugins
 claude mcp list | grep fetch  # Should NOT appear
 
-node dist/cli.js enable fetch:mcp-fetch@wookstar-claude-code-plugins
+node dist/cli.js enable fetch:mcp-fetch@wookstar-claude-plugins
 claude mcp list | grep fetch  # Should show "plugin:mcp-fetch:fetch"
 ```
 

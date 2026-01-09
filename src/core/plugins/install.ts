@@ -24,7 +24,7 @@ export interface InstallResult {
  * This adds the plugin to installed_plugins.json, making it visible to Claude Code.
  *
  * @param pluginName - The plugin name (e.g., "developer-toolkit")
- * @param marketplace - The marketplace name (e.g., "wookstar-claude-code-plugins")
+ * @param marketplace - The marketplace name (e.g., "wookstar-claude-plugins")
  * @param options - Installation options
  */
 export async function installPlugin(

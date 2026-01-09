@@ -3,17 +3,24 @@
  */
 
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import type { Server } from '@/types/index.js';
 import { getDisplayState } from '@/core/servers/toggle.js';
 import { abbreviatePath } from '@/utils/paths.js';
 import { colors, stateColors, stateSymbols, stateLabels } from '../styles/colors.js';
+
+// Max width for preview panel - enough for content without wasting space
+const MAX_PREVIEW_WIDTH = 38;
 
 interface PreviewProps {
   server: Server | undefined;
 }
 
 export const Preview: React.FC<PreviewProps> = ({ server }) => {
+  const { stdout } = useStdout();
+  const columns = stdout?.columns ?? 80;
+  const previewWidth = Math.min(Math.floor(columns * 0.3), MAX_PREVIEW_WIDTH);
+
   if (!server) {
     return (
       <Box
@@ -21,9 +28,9 @@ export const Preview: React.FC<PreviewProps> = ({ server }) => {
         borderStyle="round"
         borderColor={colors.grey}
         paddingX={1}
-        width="45%"
+        width={previewWidth}
       >
-        <Text dimColor>Select a server to view details</Text>
+        <Text dimColor>Select a server</Text>
       </Box>
     );
   }
@@ -50,7 +57,7 @@ export const Preview: React.FC<PreviewProps> = ({ server }) => {
       borderStyle="round"
       borderColor={colors.grey}
       paddingX={1}
-      width="45%"
+      width={previewWidth}
     >
       {/* Server name */}
       <Box marginBottom={1}>
@@ -60,62 +67,49 @@ export const Preview: React.FC<PreviewProps> = ({ server }) => {
       </Box>
 
       {/* Source Type */}
-      <Box>
-        <Text color={colors.cyan}>Source Type</Text>
-      </Box>
+      <Text color={colors.cyan}>Source</Text>
       <Box marginBottom={1}>
-        <Text>  {sourceLabel}</Text>
+        <Text>{sourceLabel}</Text>
       </Box>
 
-      {/* Definition */}
-      <Box>
-        <Text color={colors.cyan}>Definition</Text>
-      </Box>
-      <Box>
-        <Text dimColor>  Scope: </Text>
+      {/* Scope */}
+      <Text color={colors.cyan}>Scope</Text>
+      <Box marginBottom={1}>
         <Text>{server.scope}</Text>
       </Box>
+
+      {/* File */}
+      <Text color={colors.cyan}>File</Text>
       <Box marginBottom={1}>
-        <Text dimColor>  File:  </Text>
         <Text>{abbreviatePath(server.definitionFile, 30)}</Text>
       </Box>
 
       {/* Status */}
-      <Box>
-        <Text color={colors.cyan}>Status</Text>
-      </Box>
-      <Box marginBottom={1}>
-        <Text color={stateColor}>  {stateSymbol} {stateLabel}</Text>
-      </Box>
+      <Text color={colors.cyan}>Status</Text>
+      <Text color={stateColor}>{stateSymbol} {stateLabel}</Text>
 
       {/* Enterprise flags */}
       {server.flags.enterprise && (
-        <Box marginBottom={1}>
-          <Text color={colors.yellow}>  🏢 Enterprise-managed (immutable)</Text>
-        </Box>
+        <Text color={colors.yellow}>Enterprise-managed</Text>
       )}
       {server.flags.blocked && (
-        <Box marginBottom={1}>
-          <Text color={colors.red}>  🔒 Blocked by enterprise policy</Text>
-        </Box>
+        <Text color={colors.red}>Blocked by policy</Text>
       )}
       {server.flags.restricted && (
-        <Box marginBottom={1}>
-          <Text color={colors.yellow}>  ⚠️  Not in enterprise allowlist</Text>
-        </Box>
+        <Text color={colors.yellow}>Not in allowlist</Text>
       )}
 
-      {/* Instructions */}
+      {/* Actions */}
       <Box flexDirection="column" marginTop={1}>
         <Text color={colors.cyan}>Actions</Text>
         {!server.flags.enterprise && (
-          <Text dimColor>  SPACE - Toggle state</Text>
+          <Text dimColor>SPACE - Toggle</Text>
         )}
         {(server.sourceType === 'direct-global' || server.sourceType === 'direct-local') && (
-          <Text dimColor>  ALT-M - Migrate to .mcp.json</Text>
+          <Text dimColor>Alt-M - Migrate</Text>
         )}
         {server.sourceType === 'plugin' && !server.flags.enterprise && (
-          <Text dimColor>  ALT-H - Hard disable plugin</Text>
+          <Text dimColor>Alt-H - Hard disable</Text>
         )}
       </Box>
     </Box>

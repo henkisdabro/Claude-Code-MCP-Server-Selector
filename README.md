@@ -9,7 +9,7 @@
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
 
-> **v2.4.0**: Enhanced TUI with help overlay, search bar, toast notifications, and terminal resize handling. Improved compact mode and keyboard bindings.
+> **v2.5.0**: Plugin marketplace integration with install/uninstall commands and available plugins discovery. Enhanced status bar with compact mode support.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 
@@ -134,11 +134,11 @@ mcp list-available              # Show all uninstalled plugins
 mcp list-available --mcp-only   # Only show plugins with MCP servers
 
 # Install a plugin
-mcp install developer-toolkit@wookstar-claude-code-plugins
-mcp install finance-toolkit@wookstar-claude-code-plugins --copy  # Copy to cache
+mcp install developer-toolkit@wookstar-claude-plugins
+mcp install finance-toolkit@wookstar-claude-plugins --copy  # Copy to cache
 
 # Uninstall a plugin
-mcp uninstall developer-toolkit@wookstar-claude-code-plugins
+mcp uninstall developer-toolkit@wookstar-claude-plugins
 ```
 
 **In the TUI:** Press `i` to open the install dialog and select from available plugins.

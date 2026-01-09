@@ -9,8 +9,8 @@ import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import { colors } from '../styles/colors.js';
 
-// Use Alt- on Windows, Option symbol on macOS/Linux
-const ALT_KEY = process.platform === 'win32' ? 'Alt-' : '⌥';
+// Use text prefix for consistent rendering across all terminals and fonts
+const ALT_KEY = 'Alt-';
 
 interface HelpOverlayProps {
   onClose: () => void;
@@ -58,9 +58,9 @@ export const HelpOverlay: React.FC<HelpOverlayProps> = ({ onClose }) => {
       <ShortcutRow shortcut="i" description="Install marketplace plugin" />
       <ShortcutRow shortcut={`${ALT_KEY}M`} description="Migrate direct → .mcp.json" />
       <ShortcutRow shortcut={`${ALT_KEY}H`} description="Hard disable plugin" />
-      <ShortcutRow shortcut="^X" description="Delete server" />
-      <ShortcutRow shortcut="^A" description="Add new server" />
-      <ShortcutRow shortcut="^R" description="Refresh runtime status" />
+      <ShortcutRow shortcut="Ctrl-X" description="Delete server" />
+      <ShortcutRow shortcut="Ctrl-A" description="Add new server" />
+      <ShortcutRow shortcut="Ctrl-R" description="Refresh runtime status" />
 
       {/* Bulk Operations */}
       <Box marginTop={1} marginBottom={1}>
@@ -80,13 +80,13 @@ export const HelpOverlay: React.FC<HelpOverlayProps> = ({ onClose }) => {
       <Box marginTop={1} marginBottom={1}>
         <Text bold color={colors.orange}>Filters</Text>
       </Box>
-      <ShortcutRow shortcut={`${ALT_KEY}0`} description="Show all servers" />
-      <ShortcutRow shortcut={`${ALT_KEY}1`} description="Filter: MCPJSON" />
-      <ShortcutRow shortcut={`${ALT_KEY}2`} description="Filter: Direct" />
-      <ShortcutRow shortcut={`${ALT_KEY}3`} description="Filter: Plugin" />
-      <ShortcutRow shortcut={`${ALT_KEY}4`} description="Filter: Enterprise" />
-      <ShortcutRow shortcut={`${ALT_KEY}B`} description="Filter: Blocked" />
-      <ShortcutRow shortcut={`${ALT_KEY}O`} description="Filter: Paused (orange)" />
+      <ShortcutRow shortcut="a" description="Show all servers" />
+      <ShortcutRow shortcut="1" description="Filter: MCPJSON" />
+      <ShortcutRow shortcut="2" description="Filter: Direct" />
+      <ShortcutRow shortcut="3" description="Filter: Plugin" />
+      <ShortcutRow shortcut="4" description="Filter: Enterprise" />
+      <ShortcutRow shortcut="b" description="Filter: Blocked" />
+      <ShortcutRow shortcut="o" description="Filter: Paused (orange)" />
 
       {/* Save/Exit */}
       <Box marginTop={1} marginBottom={1}>

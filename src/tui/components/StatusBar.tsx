@@ -14,8 +14,11 @@ import type { FilterType } from '@/types/index.js';
 import { colors } from '../styles/colors.js';
 import { getLayoutMode } from '@/utils/terminal.js';
 
-// Use Alt- on Windows (better font support), Option symbol on macOS/Linux
-const ALT_KEY = process.platform === 'win32' ? 'Alt-' : '⌥';
+// Use text prefix for consistent rendering across all terminals and fonts
+const ALT_KEY = 'Alt-';
+
+// Max width to match ServerList (100) + Preview (38)
+const MAX_STATUS_WIDTH = 138;
 
 interface StatusBarProps {
   filter: FilterType;
@@ -23,18 +26,26 @@ interface StatusBarProps {
 
 export const StatusBar: React.FC<StatusBarProps> = ({ filter }) => {
   const { stdout } = useStdout();
-  const layout = getLayoutMode(stdout?.columns);
+  const columns = stdout?.columns ?? 80;
+  const layout = getLayoutMode(columns);
+  const statusWidth = Math.min(columns, MAX_STATUS_WIDTH);
 
+  let content: React.ReactNode;
   switch (layout) {
     case 'minimal':
-      return <MinimalStatusBar filter={filter} />;
+      content = <MinimalStatusBar filter={filter} />;
+      break;
     case 'compact':
-      return <CompactStatusBar filter={filter} />;
+      content = <CompactStatusBar filter={filter} />;
+      break;
     case 'wide':
-      return <WideStatusBar filter={filter} />;
+      content = <WideStatusBar filter={filter} />;
+      break;
     default:
-      return <StandardStatusBar filter={filter} />;
+      content = <StandardStatusBar filter={filter} />;
   }
+
+  return <Box width={statusWidth}>{content}</Box>;
 };
 
 /**
@@ -44,22 +55,17 @@ const MinimalStatusBar: React.FC<StatusBarProps> = ({ filter }) => {
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box>
-        <Text dimColor>
-          <Key k="SPC" color={colors.cyan} />
-          <Text>:Tog </Text>
-          <Key k="RET" color={colors.green} />
-          <Text>:Save </Text>
-          <Key k="ESC" color={colors.red} />
-          <Text>:Quit</Text>
-        </Text>
+        <Shortcut k="SPC" label="Tog" />
+        <Text> </Text>
+        <Shortcut k="RET" label="Save" color={colors.green} />
+        <Text> </Text>
+        <Shortcut k="ESC" label="Quit" color={colors.red} />
       </Box>
       <Box>
-        <Text dimColor>
-          <MiniFilterKey k="0" label="All" active={filter === 'all'} />
-          <MiniFilterKey k="1" label="MCP" active={filter === 'mcpjson'} />
-          <MiniFilterKey k="2" label="Dir" active={filter === 'direct'} />
-          <MiniFilterKey k="3" label="Plg" active={filter === 'plugin'} />
-        </Text>
+        <MiniFilterKey k="a" label="All" active={filter === 'all'} />
+        <MiniFilterKey k="1" label="MCP" active={filter === 'mcpjson'} />
+        <MiniFilterKey k="2" label="Dir" active={filter === 'direct'} />
+        <MiniFilterKey k="3" label="Plg" active={filter === 'plugin'} />
       </Box>
     </Box>
   );
@@ -72,25 +78,20 @@ const CompactStatusBar: React.FC<StatusBarProps> = ({ filter }) => {
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box>
-        <Text dimColor>
-          <Key k="SPC" color={colors.cyan} />
-          <Text>:Toggle </Text>
-          <Key k="i" color={colors.cyan} />
-          <Text>:Install </Text>
-          <Key k="RET" color={colors.green} />
-          <Text>:Save </Text>
-          <Key k="ESC" color={colors.red} />
-          <Text>:Quit</Text>
-        </Text>
+        <Shortcut k="SPC" label="Toggle" />
+        <Text> </Text>
+        <Shortcut k="i" label="Install" />
+        <Text> </Text>
+        <Shortcut k="RET" label="Save" color={colors.green} />
+        <Text> </Text>
+        <Shortcut k="ESC" label="Quit" color={colors.red} />
       </Box>
       <Box>
-        <Text dimColor>
-          <MiniFilterKey k="0" label="All" active={filter === 'all'} />
-          <MiniFilterKey k="1" label="MCP" active={filter === 'mcpjson'} />
-          <MiniFilterKey k="2" label="Dir" active={filter === 'direct'} />
-          <MiniFilterKey k="3" label="Plg" active={filter === 'plugin'} />
-          <MiniFilterKey k="4" label="Ent" active={filter === 'enterprise'} />
-        </Text>
+        <MiniFilterKey k="a" label="All" active={filter === 'all'} />
+        <MiniFilterKey k="1" label="MCP" active={filter === 'mcpjson'} />
+        <MiniFilterKey k="2" label="Dir" active={filter === 'direct'} />
+        <MiniFilterKey k="3" label="Plg" active={filter === 'plugin'} />
+        <MiniFilterKey k="4" label="Ent" active={filter === 'enterprise'} />
       </Box>
     </Box>
   );
@@ -104,48 +105,33 @@ const StandardStatusBar: React.FC<StatusBarProps> = ({ filter }) => {
     <Box flexDirection="column" marginTop={1}>
       {/* Actions */}
       <Box>
-        <Text dimColor>
-          <Key k="SPACE" color={colors.cyan} />
-          <Text>:Toggle</Text>
-          <Sep />
-          <Key k="i" color={colors.cyan} />
-          <Text>:Install</Text>
-          <Sep />
-          <Key k={`${ALT_KEY}M`} color={colors.cyan} />
-          <Text>:Migrate</Text>
-          <Sep />
-          <Key k="RET" color={colors.green} />
-          <Text>:Save</Text>
-          <Sep />
-          <Key k="ESC" color={colors.red} />
-          <Text>:Quit</Text>
-        </Text>
+        <Shortcut k="SPACE" label="Toggle" />
+        <Sep />
+        <Shortcut k="i" label="Install" />
+        <Sep />
+        <Shortcut k={`${ALT_KEY}M`} label="Migrate" />
+        <Sep />
+        <Shortcut k="RET" label="Save" color={colors.green} />
+        <Sep />
+        <Shortcut k="ESC" label="Quit" color={colors.red} />
       </Box>
       {/* Bulk operations */}
       <Box>
-        <Text dimColor>
-          <Key k={`${ALT_KEY}E`} color={colors.cyan} />
-          <Text>:Enable All</Text>
-          <Sep />
-          <Key k={`${ALT_KEY}D`} color={colors.cyan} />
-          <Text>:Disable All</Text>
-          <Sep />
-          <Key k="/" color={colors.cyan} />
-          <Text>:Search</Text>
-          <Sep />
-          <Key k="?" color={colors.cyan} />
-          <Text>:Help</Text>
-        </Text>
+        <Shortcut k={`${ALT_KEY}E`} label="Enable All" />
+        <Sep />
+        <Shortcut k={`${ALT_KEY}D`} label="Disable All" />
+        <Sep />
+        <Shortcut k="/" label="Search" />
+        <Sep />
+        <Shortcut k="?" label="Help" />
       </Box>
       {/* Filters */}
       <Box>
-        <Text dimColor>
-          <FilterKey k="1" label="MCPJSON" active={filter === 'mcpjson'} />
-          <FilterKey k="2" label="Direct" active={filter === 'direct'} />
-          <FilterKey k="3" label="Plugin" active={filter === 'plugin'} />
-          <FilterKey k="4" label="Ent" active={filter === 'enterprise'} />
-          <FilterKey k="0" label="All" active={filter === 'all'} />
-        </Text>
+        <FilterKey k="1" label="MCPJSON" active={filter === 'mcpjson'} />
+        <FilterKey k="2" label="Direct" active={filter === 'direct'} />
+        <FilterKey k="3" label="Plugin" active={filter === 'plugin'} />
+        <FilterKey k="4" label="Ent" active={filter === 'enterprise'} />
+        <FilterKey k="a" label="All" active={filter === 'all'} />
       </Box>
     </Box>
   );
@@ -157,56 +143,39 @@ const StandardStatusBar: React.FC<StatusBarProps> = ({ filter }) => {
 const WideStatusBar: React.FC<StatusBarProps> = ({ filter }) => {
   return (
     <Box flexDirection="column" marginTop={1}>
-      {/* All actions on one line */}
+      {/* Row 1: Main actions */}
       <Box>
-        <Text dimColor>
-          <Key k="SPACE" color={colors.cyan} />
-          <Text>:Toggle</Text>
-          <Sep />
-          <Key k="i" color={colors.cyan} />
-          <Text>:Install</Text>
-          <Sep />
-          <Key k={`${ALT_KEY}M`} color={colors.cyan} />
-          <Text>:Migrate</Text>
-          <Sep />
-          <Key k={`${ALT_KEY}H`} color={colors.cyan} />
-          <Text>:Hard-Disable</Text>
-          <Sep />
-          <Key k="^X" color={colors.cyan} />
-          <Text>:Delete</Text>
-          <Sep />
-          <Key k={`${ALT_KEY}E`} color={colors.cyan} />
-          <Text>:Enable All</Text>
-          <Sep />
-          <Key k={`${ALT_KEY}D`} color={colors.cyan} />
-          <Text>:Disable All</Text>
-          <Sep />
-          <Key k="/" color={colors.cyan} />
-          <Text>:Search</Text>
-          <Sep />
-          <Key k="?" color={colors.cyan} />
-          <Text>:Help</Text>
-          <Sep />
-          <Key k="RET" color={colors.green} />
-          <Text>:Save</Text>
-          <Sep />
-          <Key k="ESC" color={colors.red} />
-          <Text>:Quit</Text>
-        </Text>
+        <Shortcut k="SPC" label="Toggle" />
+        <Sep />
+        <Shortcut k="i" label="Install" />
+        <Sep />
+        <Shortcut k="Alt-M" label="Migrate" />
+        <Sep />
+        <Shortcut k="Alt-H" label="Hard-Dis" />
+        <Sep />
+        <Shortcut k="^X" label="Delete" />
+        <Sep />
+        <Shortcut k="Alt-E" label="On All" />
+        <Sep />
+        <Shortcut k="Alt-D" label="Off All" />
+        <Sep />
+        <Shortcut k="/" label="Search" />
+        <Sep />
+        <Shortcut k="?" label="Help" />
+        <Sep />
+        <Shortcut k="RET" label="Save" color={colors.green} />
+        <Sep />
+        <Shortcut k="ESC" label="Quit" color={colors.red} />
       </Box>
-      {/* Filters */}
+      {/* Row 2: Filters */}
       <Box>
-        <Text dimColor>
-          Filters:
-          <Text> </Text>
-          <FilterKey k="1" label="MCPJSON" active={filter === 'mcpjson'} />
-          <FilterKey k="2" label="Direct" active={filter === 'direct'} />
-          <FilterKey k="3" label="Plugin" active={filter === 'plugin'} />
-          <FilterKey k="4" label="Enterprise" active={filter === 'enterprise'} />
-          <FilterKey k="0" label="All" active={filter === 'all'} />
-          <FilterKey k="B" label="Blocked" active={filter === 'blocked'} />
-          <FilterKey k="O" label="Paused" active={filter === 'orange'} />
-        </Text>
+        <FilterKey k="1" label="MCP" active={filter === 'mcpjson'} />
+        <FilterKey k="2" label="Direct" active={filter === 'direct'} />
+        <FilterKey k="3" label="Plugin" active={filter === 'plugin'} />
+        <FilterKey k="4" label="Ent" active={filter === 'enterprise'} />
+        <FilterKey k="a" label="All" active={filter === 'all'} />
+        <FilterKey k="b" label="Blocked" active={filter === 'blocked'} />
+        <FilterKey k="o" label="Paused" active={filter === 'orange'} />
       </Box>
     </Box>
   );
@@ -214,13 +183,17 @@ const WideStatusBar: React.FC<StatusBarProps> = ({ filter }) => {
 
 // Helper components
 
-interface KeyProps {
+interface ShortcutProps {
   k: string;
-  color: string;
+  label: string;
+  color?: string;
 }
 
-const Key: React.FC<KeyProps> = ({ k, color }) => (
-  <Text color={color}>{k}</Text>
+const Shortcut: React.FC<ShortcutProps> = ({ k, label, color = colors.cyan }) => (
+  <Text>
+    <Text color={color}>{k}</Text>
+    <Text>:{label}</Text>
+  </Text>
 );
 
 const Sep: React.FC = () => <Text dimColor> │ </Text>;
@@ -232,27 +205,27 @@ interface FilterKeyProps {
 }
 
 const FilterKey: React.FC<FilterKeyProps> = ({ k, label, active }) => (
-  <>
-    <Text color={colors.cyan}>{ALT_KEY}{k}</Text>
+  <Text>
+    <Text color={colors.cyan}>{k}</Text>
     <Text>:</Text>
     {active ? (
       <Text color={colors.green} bold>[{label}]</Text>
     ) : (
-      <Text dimColor>{label}</Text>
+      <Text>{label}</Text>
     )}
     <Text> </Text>
-  </>
+  </Text>
 );
 
 const MiniFilterKey: React.FC<FilterKeyProps> = ({ k, label, active }) => (
-  <>
+  <Text>
     <Text color={colors.cyan}>{k}</Text>
     <Text>:</Text>
     {active ? (
       <Text color={colors.green} bold>{label}</Text>
     ) : (
-      <Text dimColor>{label}</Text>
+      <Text>{label}</Text>
     )}
     <Text> </Text>
-  </>
+  </Text>
 );

@@ -64,13 +64,23 @@ export const ServerList: React.FC<ServerListProps> = ({
   const typeHeader = layout === 'minimal' ? 'Type' : 'Source';
   const scopeHeader = layout === 'compact' ? 'Scope' : 'Scope';
 
+  // Calculate width: use percentage up to a max, then cap
+  // Content width = status(3) + name + separator(3) + type + separator(3) + scope + padding(4)
+  const contentWidth = 3 + columnWidths.nameWidth + 3 + columnWidths.typeWidth +
+    (columnWidths.showScope ? 3 + columnWidths.scopeWidth : 0) + 4;
+  const maxListWidth = 100;
+  const percentageWidth = Math.floor(columns * 0.7);
+  const calculatedWidth = fullWidth
+    ? columns
+    : Math.min(percentageWidth, maxListWidth, contentWidth + 4);
+
   return (
     <Box
       flexDirection="column"
       borderStyle="round"
       borderColor={colors.grey}
       paddingX={1}
-      width={fullWidth ? '100%' : '55%'}
+      width={calculatedWidth}
     >
       {/* Table header */}
       <Box>

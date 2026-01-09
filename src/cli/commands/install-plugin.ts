@@ -19,7 +19,7 @@ export async function runInstallPlugin(
   const atIdx = pluginArg.indexOf('@');
   if (atIdx === -1) {
     console.error(chalk.red('Error: Plugin must be specified as "name@marketplace"'));
-    console.error(chalk.dim('Example: mcp install developer-toolkit@wookstar-claude-code-plugins'));
+    console.error(chalk.dim('Example: mcp install developer-toolkit@wookstar-claude-plugins'));
     process.exit(1);
   }
 

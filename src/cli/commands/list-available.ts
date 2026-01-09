@@ -50,5 +50,5 @@ export async function runListAvailable(options: ListAvailableOptions): Promise<v
   }
 
   console.log(chalk.dim('To install: mcp install <name>@<marketplace>'));
-  console.log(chalk.dim('Example: mcp install developer-toolkit@wookstar-claude-code-plugins'));
+  console.log(chalk.dim('Example: mcp install developer-toolkit@wookstar-claude-plugins'));
 }

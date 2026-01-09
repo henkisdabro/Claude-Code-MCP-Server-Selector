@@ -15,7 +15,7 @@
 
 import { Command } from 'commander';
 
-const VERSION = '2.4.0';
+const VERSION = '2.5.0';
 
 // Capture Claude args passed after -- separator
 const dashDashIndex = process.argv.indexOf('--');
@@ -160,7 +160,7 @@ program
 // Plugin management commands
 program
   .command('install <plugin>')
-  .description('Install a plugin from marketplace (e.g., "developer-toolkit@wookstar-claude-code-plugins")')
+  .description('Install a plugin from marketplace (e.g., "developer-toolkit@wookstar-claude-plugins")')
   .option('--copy', 'Copy plugin to cache directory instead of using marketplace path')
   .action(async (plugin, options) => {
     const { runInstallPlugin } = await import('./commands/install-plugin.js');
