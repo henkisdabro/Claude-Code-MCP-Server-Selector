@@ -16,7 +16,14 @@ import {
   getDisplayState,
 } from '@/core/servers/toggle.js';
 
-export type TuiMode = 'list' | 'add' | 'install' | 'confirm-delete' | 'confirm-hard-disable' | 'migrate';
+export type TuiMode = 'list' | 'add' | 'install' | 'confirm-delete' | 'confirm-hard-disable' | 'migrate' | 'search' | 'help';
+
+/** Toast notification */
+export interface Notification {
+  id: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  message: string;
+}
 
 interface TuiState {
   // Data
@@ -34,12 +41,28 @@ interface TuiState {
   error: string | null;
   dirty: boolean;
 
+  // Search state
+  searchQuery: string;
+  searchActive: boolean;
+
+  // Notifications
+  notifications: Notification[];
+
   // Actions
   load: (cwd: string, strictDisable?: boolean) => Promise<void>;
   setSelectedIndex: (index: number) => void;
   moveSelection: (delta: number) => void;
   setFilter: (filter: FilterType) => void;
   setMode: (mode: TuiMode, target?: string) => void;
+
+  // Search actions
+  setSearchQuery: (query: string) => void;
+  openSearch: () => void;
+  closeSearch: () => void;
+
+  // Notification actions
+  addNotification: (type: Notification['type'], message: string) => void;
+  dismissNotification: (id: string) => void;
 
   // Server operations
   toggle: () => void;
@@ -69,6 +92,9 @@ export const useTuiStore = create<TuiState>((set, get) => ({
   loading: true,
   error: null,
   dirty: false,
+  searchQuery: '',
+  searchActive: false,
+  notifications: [],
 
   // Load servers from config
   load: async (cwd: string, strictDisable?: boolean) => {
@@ -119,6 +145,33 @@ export const useTuiStore = create<TuiState>((set, get) => ({
   // Mode
   setMode: (mode: TuiMode, target?: string) => {
     set({ mode, confirmTarget: target ?? null });
+  },
+
+  // Search
+  setSearchQuery: (query: string) => {
+    set({ searchQuery: query, selectedIndex: 0 });
+  },
+
+  openSearch: () => {
+    set({ mode: 'search', searchActive: true, searchQuery: '' });
+  },
+
+  closeSearch: () => {
+    set({ mode: 'list', searchActive: false });
+  },
+
+  // Notifications
+  addNotification: (type: Notification['type'], message: string) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    set((state) => ({
+      notifications: [...state.notifications, { id, type, message }],
+    }));
+  },
+
+  dismissNotification: (id: string) => {
+    set((state) => ({
+      notifications: state.notifications.filter((n) => n.id !== id),
+    }));
   },
 
   // Toggle current server
@@ -358,26 +411,43 @@ export const useTuiStore = create<TuiState>((set, get) => ({
 
   // Get filtered servers
   getFilteredServers: () => {
-    const { servers, filter } = get();
+    const { servers, filter, searchQuery } = get();
 
+    // First apply type filter
+    let filtered: Server[];
     switch (filter) {
       case 'all':
-        return servers;
+        filtered = servers;
+        break;
       case 'mcpjson':
-        return servers.filter((s) => s.sourceType === 'mcpjson');
+        filtered = servers.filter((s) => s.sourceType === 'mcpjson');
+        break;
       case 'direct':
-        return servers.filter((s) => s.sourceType.startsWith('direct'));
+        filtered = servers.filter((s) => s.sourceType.startsWith('direct'));
+        break;
       case 'plugin':
-        return servers.filter((s) => s.sourceType === 'plugin');
+        filtered = servers.filter((s) => s.sourceType === 'plugin');
+        break;
       case 'enterprise':
-        return servers.filter((s) => s.flags.enterprise);
+        filtered = servers.filter((s) => s.flags.enterprise);
+        break;
       case 'blocked':
-        return servers.filter((s) => s.flags.blocked || s.flags.restricted);
+        filtered = servers.filter((s) => s.flags.blocked || s.flags.restricted);
+        break;
       case 'orange':
-        return servers.filter((s) => getDisplayState(s) === 'orange');
+        filtered = servers.filter((s) => getDisplayState(s) === 'orange');
+        break;
       default:
-        return servers;
+        filtered = servers;
     }
+
+    // Then apply search filter if active
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((s) => s.name.toLowerCase().includes(query));
+    }
+
+    return filtered;
   },
 
   // Get selected server

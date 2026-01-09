@@ -66,6 +66,10 @@ interface KeyBindingHandlers {
   // Filters
   onSetFilter: (filter: FilterType) => void;
 
+  // Search and Help
+  onSearch: () => void;
+  onHelp: () => void;
+
   // Save/Cancel
   onSave: () => void;
   onCancel: () => void;
@@ -128,9 +132,12 @@ export function useKeyBindings(handlers: KeyBindingHandlers): void {
     };
   }, []);
 
+  // Only handle input when mode is 'list' (not in dialogs, search, or help)
+  const isListMode = handlers.mode === 'list';
+
   useInput((input, key) => {
     // Only handle input in list mode
-    if (handlers.mode !== 'list') return;
+    if (!isListMode) return;
 
     const now = Date.now();
 
@@ -222,6 +229,18 @@ export function useKeyBindings(handlers: KeyBindingHandlers): void {
     // Install with 'i' (matches Claude Code keybinding)
     if (input === 'i') {
       handlers.onInstall();
+      return;
+    }
+
+    // Search with '/'
+    if (input === '/') {
+      handlers.onSearch();
+      return;
+    }
+
+    // Help with '?'
+    if (input === '?') {
+      handlers.onHelp();
       return;
     }
 

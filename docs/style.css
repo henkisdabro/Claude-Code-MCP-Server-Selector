@@ -1104,7 +1104,7 @@ kbd {
 .btn:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.2);
+    box-shadow: 0 0 0 4px rgba(232, 208, 196, 0.3);
 }
 
 .nav-link:focus-visible {

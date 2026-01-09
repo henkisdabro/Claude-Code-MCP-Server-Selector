@@ -5,7 +5,8 @@
  */
 
 import React, { useEffect } from 'react';
-import { Box, Text, useApp, useStdin, useStdout } from 'ink';
+import { Box, Text, useApp, useStdin } from 'ink';
+import { Spinner } from '@inkjs/ui';
 import { Header } from './components/Header.js';
 import { ServerList } from './components/ServerList.js';
 import { Preview } from './components/Preview.js';
@@ -14,7 +15,11 @@ import { ConfirmDialog } from './components/ConfirmDialog.js';
 import { InputDialog } from './components/InputDialog.js';
 import { InstallDialog } from './components/InstallDialog.js';
 import { MigrateDialog } from './components/MigrateDialog.js';
+import { SearchBar } from './components/SearchBar.js';
+import { HelpOverlay } from './components/HelpOverlay.js';
+import { ToastContainer } from './components/Toast.js';
 import { useKeyBindings } from './hooks/useKeyBindings.js';
+import { useTerminalResize } from './hooks/useTerminalResize.js';
 import { useTuiStore } from './store/index.js';
 import { getDisplayState } from '@/core/servers/toggle.js';
 import { colors } from './styles/colors.js';
@@ -29,8 +34,10 @@ interface AppProps {
 export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) => {
   const { exit } = useApp();
   const { setRawMode } = useStdin();
-  const { stdout } = useStdout();
-  const compact = isCompactMode(stdout?.columns);
+
+  // Track terminal dimensions for responsive layout
+  const { columns } = useTerminalResize();
+  const compact = isCompactMode(columns);
 
   // Store state
   const {
@@ -42,6 +49,7 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
     loading,
     error,
     dirty,
+    notifications,
     load,
     moveSelection,
     setFilter,
@@ -56,6 +64,9 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
     installPlugin,
     refreshRuntimeStatus,
     save,
+    openSearch,
+    dismissNotification,
+    addNotification,
     getFilteredServers,
     getSelectedServer,
   } = useTuiStore();
@@ -105,9 +116,12 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
       refreshRuntimeStatus();
     },
     onSetFilter: setFilter,
+    onSearch: openSearch,
+    onHelp: () => setMode('help'),
     onSave: async () => {
       const success = await save(cwd);
       if (success) {
+        addNotification('success', 'Changes saved');
         onSaveComplete?.();
         exit();
       }
@@ -121,7 +135,7 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
   if (loading) {
     return (
       <Box padding={1}>
-        <Text color={colors.cyan}>Loading servers...</Text>
+        <Spinner label="Loading servers..." />
       </Box>
     );
   }
@@ -226,6 +240,9 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
           />
         );
 
+      case 'help':
+        return <HelpOverlay onClose={() => setMode('list')} />;
+
       default:
         return null;
     }
@@ -250,6 +267,9 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
         </Box>
       ) : (
         <>
+          {/* Search bar (when active) */}
+          {mode === 'search' && <SearchBar />}
+
           {/* Main content: Server list + Preview (preview hidden in compact mode) */}
           <Box flexDirection="row" flexGrow={1}>
             <ServerList
@@ -257,9 +277,16 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
               selectedIndex={selectedIndex}
               filter={filter}
               fullWidth={compact}
+              terminalColumns={columns}
             />
             {!compact && <Preview server={selectedServer} />}
           </Box>
+
+          {/* Toast notifications */}
+          <ToastContainer
+            notifications={notifications}
+            onDismiss={dismissNotification}
+          />
 
           {/* Status bar with shortcuts */}
           <StatusBar filter={filter} />

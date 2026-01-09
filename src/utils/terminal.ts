@@ -41,12 +41,44 @@ export function detectTerminal(): TerminalInfo {
   };
 }
 
-/** Minimum dimensions for full layout */
-export const FULL_LAYOUT_WIDTH = 80;
-/** Minimum dimensions for compact layout (mobile) */
-export const COMPACT_LAYOUT_WIDTH = 50;
+/**
+ * Layout breakpoints for responsive UI
+ *
+ * All components should use these breakpoints consistently:
+ * - minimal (<60): Essential UI only, single column, no preview
+ * - compact (60-79): Compressed layout, no preview
+ * - standard (80-119): Full layout with preview panel
+ * - wide (120+): All shortcuts on fewer lines
+ */
+export const LAYOUT_BREAKPOINTS = {
+  /** Minimum terminal width to run TUI */
+  MIN_WIDTH: 50,
+  /** Essential UI only, single column, truncated names */
+  MINIMAL: 60,
+  /** Compressed layout, no preview panel */
+  COMPACT: 80,
+  /** Full layout with preview panel */
+  STANDARD: 80,
+  /** Wide layout with all shortcuts visible */
+  WIDE: 120,
+} as const;
+
 /** Minimum rows for TUI */
 export const MIN_ROWS = 15;
+
+/** Layout mode type */
+export type LayoutMode = 'minimal' | 'compact' | 'standard' | 'wide';
+
+/**
+ * Get the current layout mode based on terminal width
+ */
+export function getLayoutMode(columns?: number): LayoutMode {
+  const cols = columns ?? process.stdout.columns ?? 80;
+  if (cols < LAYOUT_BREAKPOINTS.MINIMAL) return 'minimal';
+  if (cols < LAYOUT_BREAKPOINTS.COMPACT) return 'compact';
+  if (cols < LAYOUT_BREAKPOINTS.WIDE) return 'standard';
+  return 'wide';
+}
 
 /**
  * Check if the terminal can run the TUI
@@ -63,8 +95,8 @@ export function canRunTui(): { ok: boolean; issues: string[] } {
     issues.push('Not running in an interactive terminal (TTY)');
   }
 
-  if (info.columns < COMPACT_LAYOUT_WIDTH || info.rows < MIN_ROWS) {
-    issues.push(`Terminal too small (${info.columns}x${info.rows}), need at least ${COMPACT_LAYOUT_WIDTH}x${MIN_ROWS}`);
+  if (info.columns < LAYOUT_BREAKPOINTS.MIN_WIDTH || info.rows < MIN_ROWS) {
+    issues.push(`Terminal too small (${info.columns}x${info.rows}), need at least ${LAYOUT_BREAKPOINTS.MIN_WIDTH}x${MIN_ROWS}`);
   }
 
   if (process.platform === 'win32' && !info.isWindowsTerminal) {
@@ -81,15 +113,15 @@ export function canRunTui(): { ok: boolean; issues: string[] } {
  * Get recommended minimum terminal dimensions
  */
 export function getMinDimensions(): { columns: number; rows: number } {
-  return { columns: COMPACT_LAYOUT_WIDTH, rows: MIN_ROWS };
+  return { columns: LAYOUT_BREAKPOINTS.MIN_WIDTH, rows: MIN_ROWS };
 }
 
 /**
- * Check if terminal should use compact layout (for mobile/narrow terminals)
+ * Check if terminal should use compact layout (no preview panel)
  */
 export function isCompactMode(columns?: number): boolean {
   const cols = columns ?? process.stdout.columns ?? 80;
-  return cols < FULL_LAYOUT_WIDTH;
+  return cols < LAYOUT_BREAKPOINTS.COMPACT;
 }
 
 /**
@@ -103,16 +135,47 @@ export function getListHeight(terminalRows: number): number {
 }
 
 /**
- * Calculate column widths based on terminal width
+ * Truncate a string to fit within a maximum width, adding ellipsis if needed
+ */
+export function truncateString(str: string, maxWidth: number): string {
+  if (str.length <= maxWidth) return str;
+  if (maxWidth <= 3) return str.slice(0, maxWidth);
+  return str.slice(0, maxWidth - 1) + '…';
+}
+
+/**
+ * Calculate column widths based on terminal width and layout mode
  */
 export function calculateColumnWidths(
   terminalColumns: number,
   maxServerNameLen: number
-): { nameWidth: number; typeWidth: number; scopeWidth: number } {
-  // Fixed widths
+): { nameWidth: number; typeWidth: number; scopeWidth: number; showScope: boolean } {
+  const layout = getLayoutMode(terminalColumns);
+
+  // In minimal mode, hide scope column and use shorter type labels
+  if (layout === 'minimal') {
+    const typeWidth = 6;   // Abbreviated: "mcp", "dir", "plg"
+    const separators = 6;  // " │ " + padding
+    const nameWidth = Math.max(15, terminalColumns - typeWidth - separators - 4);
+    return { nameWidth, typeWidth, scopeWidth: 0, showScope: false };
+  }
+
+  // In compact mode, use shorter scope labels
+  if (layout === 'compact') {
+    const typeWidth = 7;   // "mcpjson" / "direct" / "plugin"
+    const scopeWidth = 7;  // "ent" / "proj" / "local" / "user"
+    const separators = 10; // " │ " x 2 + padding
+    const nameWidth = Math.min(
+      maxServerNameLen + 2,
+      terminalColumns - typeWidth - scopeWidth - separators - 4
+    );
+    return { nameWidth, typeWidth, scopeWidth, showScope: true };
+  }
+
+  // Standard and wide modes
   const typeWidth = 8;   // "mcpjson" / "direct" / "plugin"
   const scopeWidth = 10; // "enterprise" / "project" / "local" / "user"
-  const separators = 10; // " | " x 2 + padding
+  const separators = 10; // " │ " x 2 + padding
 
   // Name column gets the rest
   const nameWidth = Math.min(
@@ -120,5 +183,5 @@ export function calculateColumnWidths(
     terminalColumns - typeWidth - scopeWidth - separators - 10
   );
 
-  return { nameWidth, typeWidth, scopeWidth };
+  return { nameWidth, typeWidth, scopeWidth, showScope: true };
 }

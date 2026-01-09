@@ -1,5 +1,10 @@
 /**
- * ServerList component - Scrollable server list
+ * ServerList component - Responsive scrollable server list
+ *
+ * Adapts column widths and visibility based on terminal width:
+ * - minimal (<60): Name + abbreviated type, no scope
+ * - compact (60-79): Name + type + abbreviated scope
+ * - standard/wide (80+): Full columns
  */
 
 import React, { useMemo } from 'react';
@@ -7,12 +12,14 @@ import { Box, Text, useStdout } from 'ink';
 import type { Server, FilterType } from '@/types/index.js';
 import { ServerRow } from './ServerRow.js';
 import { colors } from '../styles/colors.js';
+import { calculateColumnWidths, getLayoutMode } from '@/utils/terminal.js';
 
 interface ServerListProps {
   servers: Server[];
   selectedIndex: number;
   filter: FilterType;
   fullWidth?: boolean;
+  terminalColumns?: number;
 }
 
 export const ServerList: React.FC<ServerListProps> = ({
@@ -20,19 +27,25 @@ export const ServerList: React.FC<ServerListProps> = ({
   selectedIndex,
   filter,
   fullWidth = false,
+  terminalColumns,
 }) => {
   const { stdout } = useStdout();
   const terminalHeight = stdout?.rows ?? 24;
+  const columns = terminalColumns ?? stdout?.columns ?? 80;
+  const layout = getLayoutMode(columns);
 
   // Reserve space for header, shortcuts, and borders
   const listHeight = Math.max(5, terminalHeight - 18);
 
-  // Calculate column widths
+  // Calculate responsive column widths
   const maxNameLen = useMemo(
     () => Math.max(...servers.map((s) => s.name.length + 3), 15),
     [servers]
   );
-  const typeWidth = 8;
+  const columnWidths = useMemo(
+    () => calculateColumnWidths(columns, maxNameLen),
+    [columns, maxNameLen]
+  );
 
   // Calculate scroll window
   const windowStart = useMemo(() => {
@@ -47,6 +60,10 @@ export const ServerList: React.FC<ServerListProps> = ({
   // Filter indicator
   const filterLabel = filter !== 'all' ? ` [${filter.toUpperCase()}]` : '';
 
+  // Column header labels based on layout
+  const typeHeader = layout === 'minimal' ? 'Type' : 'Source';
+  const scopeHeader = layout === 'compact' ? 'Scope' : 'Scope';
+
   return (
     <Box
       flexDirection="column"
@@ -58,23 +75,31 @@ export const ServerList: React.FC<ServerListProps> = ({
       {/* Table header */}
       <Box>
         <Text dimColor>
-          {'  '}
-          {'MCP Server'.padEnd(maxNameLen)}
+          {'   '}
+          {'MCP Server'.padEnd(columnWidths.nameWidth)}
           {' │ '}
-          {'Source'.padEnd(typeWidth)}
-          {' │ '}
-          Scope
+          {typeHeader.padEnd(columnWidths.typeWidth)}
+          {columnWidths.showScope && (
+            <>
+              {' │ '}
+              {scopeHeader}
+            </>
+          )}
           {filterLabel && <Text color={colors.cyan}>{filterLabel}</Text>}
         </Text>
       </Box>
       <Box>
         <Text dimColor>
-          {'  '}
-          {'─'.repeat(maxNameLen)}
+          {'───'}
+          {'─'.repeat(columnWidths.nameWidth)}
           {'─┼─'}
-          {'─'.repeat(typeWidth)}
-          {'─┼─'}
-          {'─'.repeat(10)}
+          {'─'.repeat(columnWidths.typeWidth)}
+          {columnWidths.showScope && (
+            <>
+              {'─┼─'}
+              {'─'.repeat(columnWidths.scopeWidth)}
+            </>
+          )}
         </Text>
       </Box>
 
@@ -89,8 +114,11 @@ export const ServerList: React.FC<ServerListProps> = ({
             key={server.name}
             server={server}
             isSelected={windowStart + i === selectedIndex}
-            nameWidth={maxNameLen}
-            typeWidth={typeWidth}
+            nameWidth={columnWidths.nameWidth}
+            typeWidth={columnWidths.typeWidth}
+            scopeWidth={columnWidths.scopeWidth}
+            showScope={columnWidths.showScope}
+            layout={layout}
           />
         ))
       )}

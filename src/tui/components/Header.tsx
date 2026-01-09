@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
-import { colors, CLAUDE_ORANGE } from '../styles/colors.js';
+import { colors, CLAUDE_SALMON } from '../styles/colors.js';
 import { isCompactMode } from '@/utils/terminal.js';
 
 interface HeaderProps {
@@ -34,14 +34,14 @@ export const Header: React.FC<HeaderProps> = ({ total, enabled, disabled, dirty 
       {/* ASCII Art Title - only show in full layout */}
       {!compact && LOGO_LINES.map((line, index) => (
         <Box key={index}>
-          <Text color={CLAUDE_ORANGE}>{line}</Text>
+          <Text color={CLAUDE_SALMON}>{line}</Text>
         </Box>
       ))}
 
       {/* Compact title for narrow terminals */}
       {compact && (
         <Box>
-          <Text color={CLAUDE_ORANGE} bold>MCP Selector</Text>
+          <Text color={CLAUDE_SALMON} bold>MCP Selector</Text>
         </Box>
       )}
 

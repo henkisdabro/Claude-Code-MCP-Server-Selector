@@ -9,7 +9,7 @@
 
 A fast, beautiful TUI for managing MCP (Model Context Protocol) servers in Claude Code. Optimize your context window by enabling only the servers you need, when you need them.
 
-> **v2.3.0**: Fix plugin state resolution with priority-aware precedence. Improve CLI argument handling with passThroughOptions.
+> **v2.4.0**: Enhanced TUI with help overlay, search bar, toast notifications, and terminal resize handling. Improved compact mode and keyboard bindings.
 
 ![MCP Server Selector Screenshot](/docs/demo.gif)
 

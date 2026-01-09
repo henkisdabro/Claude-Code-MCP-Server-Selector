@@ -1,49 +1,61 @@
 /**
- * Color definitions for the TUI
+ * Colour definitions for the TUI
  *
- * Matches the bash version's color scheme.
+ * Warm, cohesive palette built around Claude Code salmon (#CE9178).
+ * Designed for visual harmony and accessibility.
  */
 
-/** Claude brand orange */
-export const CLAUDE_ORANGE = '#d56125';
+/** Claude Code salmon - primary brand colour */
+export const CLAUDE_SALMON = '#ce9178';
 
-/** Color palette */
+/** Colour palette */
 export const colors = {
   // Brand
-  orange: CLAUDE_ORANGE,
+  salmon: CLAUDE_SALMON,
+  orange: CLAUDE_SALMON,  // Legacy alias
 
   // State indicators
-  green: '#5fff87',
-  red: '#ff5f5f',
-  yellow: '#ffff5f',
+  green: '#8fbc8b',   // Sage green - enabled/success
+  red: '#bf616a',     // Rose red - disabled/error (cooler tone)
+  yellow: '#deb887',  // Burlywood - warnings
 
   // UI elements
-  cyan: '#5fd7ff',
-  magenta: '#ff87d7',
-  grey: '#808080',
-  dimGrey: '#4a4a4a',
+  accent: '#e8d0c4',  // Champagne - primary UI accent
+  secondary: '#d4a594', // Dusty rose - secondary accent
+  grey: '#9a9a9a',    // Mid grey - borders
+  dimGrey: '#6a6a6a', // Dim grey - secondary text
 
   // Backgrounds
-  bgDark: '#121212',
-  bgSelected: '#262626',
+  bgDark: '#1a1a1a',
+  bgSelected: '#2a2a2a',
 
   // Text
   white: '#ffffff',
   dimWhite: '#d0d0d0',
+
+  // Legacy alias (for components still using cyan)
+  cyan: '#e8d0c4',
 } as const;
 
 /** State color mapping */
 export const stateColors = {
   red: colors.red,
   green: colors.green,
-  orange: CLAUDE_ORANGE,
+  orange: CLAUDE_SALMON,
 } as const;
 
 /** State symbols */
 export const stateSymbols = {
-  red: '○',      // Hollow circle for disabled
-  green: '●',    // Filled circle for enabled
-  orange: '●',   // Filled circle for paused (shown in orange)
+  red: 'x',      // x for disabled
+  green: '>',    // Arrow for enabled/running
+  orange: '=',   // Equals for paused
+} as const;
+
+/** State text labels for accessibility */
+export const stateLabels = {
+  red: 'Disabled',
+  green: 'Running',
+  orange: 'Paused',
 } as const;
 
 /** Flag indicators */

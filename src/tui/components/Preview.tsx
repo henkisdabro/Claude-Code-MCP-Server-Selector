@@ -7,7 +7,7 @@ import { Box, Text } from 'ink';
 import type { Server } from '@/types/index.js';
 import { getDisplayState } from '@/core/servers/toggle.js';
 import { abbreviatePath } from '@/utils/paths.js';
-import { colors, stateColors } from '../styles/colors.js';
+import { colors, stateColors, stateSymbols, stateLabels } from '../styles/colors.js';
 
 interface PreviewProps {
   server: Server | undefined;
@@ -40,13 +40,9 @@ export const Preview: React.FC<PreviewProps> = ({ server }) => {
   };
   const sourceLabel = sourceLabels[server.sourceType] ?? server.sourceType;
 
-  // State label
-  const stateLabels: Record<string, string> = {
-    red: 'Disabled',
-    green: 'Enabled',
-    orange: 'Enabled (Runtime Paused)',
-  };
+  // State label and symbol
   const stateLabel = stateLabels[displayState];
+  const stateSymbol = stateSymbols[displayState];
 
   return (
     <Box
@@ -89,7 +85,7 @@ export const Preview: React.FC<PreviewProps> = ({ server }) => {
         <Text color={colors.cyan}>Status</Text>
       </Box>
       <Box marginBottom={1}>
-        <Text color={stateColor}>  {stateLabel}</Text>
+        <Text color={stateColor}>  {stateSymbol} {stateLabel}</Text>
       </Box>
 
       {/* Enterprise flags */}
