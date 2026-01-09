@@ -3,8 +3,9 @@
  */
 
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { colors, CLAUDE_ORANGE } from '../styles/colors.js';
+import { isCompactMode } from '@/utils/terminal.js';
 
 interface HeaderProps {
   total: number;
@@ -13,7 +14,7 @@ interface HeaderProps {
   dirty: boolean;
 }
 
-// ASCII art logo lines
+// ASCII art logo lines (97 chars wide)
 const LOGO_LINES = [
   '███╗   ███╗ ██████╗██████╗     ███████╗███████╗██╗     ███████╗ ██████╗████████╗ ██████╗ ██████╗ ',
   '████╗ ████║██╔════╝██╔══██╗    ██╔════╝██╔════╝██║     ██╔════╝██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗',
@@ -24,31 +25,40 @@ const LOGO_LINES = [
 ];
 
 export const Header: React.FC<HeaderProps> = ({ total, enabled, disabled, dirty }) => {
+  const { stdout } = useStdout();
+  const compact = isCompactMode(stdout?.columns);
   const percentage = total > 0 ? Math.round((enabled / total) * 100) : 0;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* ASCII Art Title */}
-      {LOGO_LINES.map((line, index) => (
+      {/* ASCII Art Title - only show in full layout */}
+      {!compact && LOGO_LINES.map((line, index) => (
         <Box key={index}>
           <Text color={CLAUDE_ORANGE}>{line}</Text>
         </Box>
       ))}
 
+      {/* Compact title for narrow terminals */}
+      {compact && (
+        <Box>
+          <Text color={CLAUDE_ORANGE} bold>MCP Selector</Text>
+        </Box>
+      )}
+
       {/* Stats line */}
-      <Box marginTop={1}>
+      <Box marginTop={compact ? 0 : 1}>
         <Text>
           <Text color={colors.green}>{enabled}</Text>
-          <Text dimColor> enabled</Text>
+          <Text dimColor>{compact ? 'on' : ' enabled'}</Text>
           <Text> / </Text>
           <Text color={colors.red}>{disabled}</Text>
-          <Text dimColor> disabled</Text>
+          <Text dimColor>{compact ? 'off' : ' disabled'}</Text>
           <Text> / </Text>
           <Text>{total}</Text>
-          <Text dimColor> total</Text>
+          <Text dimColor>{compact ? '' : ' total'}</Text>
           <Text dimColor> ({percentage}%)</Text>
           {dirty && (
-            <Text color={colors.yellow}> [unsaved changes]</Text>
+            <Text color={colors.yellow}>{compact ? ' *' : ' [unsaved]'}</Text>
           )}
         </Text>
       </Box>

@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { Box, Text, useApp, useStdin } from 'ink';
+import { Box, Text, useApp, useStdin, useStdout } from 'ink';
 import { Header } from './components/Header.js';
 import { ServerList } from './components/ServerList.js';
 import { Preview } from './components/Preview.js';
@@ -18,6 +18,7 @@ import { useKeyBindings } from './hooks/useKeyBindings.js';
 import { useTuiStore } from './store/index.js';
 import { getDisplayState } from '@/core/servers/toggle.js';
 import { colors } from './styles/colors.js';
+import { isCompactMode } from '@/utils/terminal.js';
 
 interface AppProps {
   cwd: string;
@@ -28,6 +29,8 @@ interface AppProps {
 export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) => {
   const { exit } = useApp();
   const { setRawMode } = useStdin();
+  const { stdout } = useStdout();
+  const compact = isCompactMode(stdout?.columns);
 
   // Store state
   const {
@@ -247,14 +250,15 @@ export const App: React.FC<AppProps> = ({ cwd, strictDisable, onSaveComplete }) 
         </Box>
       ) : (
         <>
-          {/* Main content: Server list + Preview */}
+          {/* Main content: Server list + Preview (preview hidden in compact mode) */}
           <Box flexDirection="row" flexGrow={1}>
             <ServerList
               servers={filteredServers}
               selectedIndex={selectedIndex}
               filter={filter}
+              fullWidth={compact}
             />
-            <Preview server={selectedServer} />
+            {!compact && <Preview server={selectedServer} />}
           </Box>
 
           {/* Status bar with shortcuts */}

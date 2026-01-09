@@ -12,12 +12,14 @@ interface ServerListProps {
   servers: Server[];
   selectedIndex: number;
   filter: FilterType;
+  fullWidth?: boolean;
 }
 
 export const ServerList: React.FC<ServerListProps> = ({
   servers,
   selectedIndex,
   filter,
+  fullWidth = false,
 }) => {
   const { stdout } = useStdout();
   const terminalHeight = stdout?.rows ?? 24;
@@ -51,7 +53,7 @@ export const ServerList: React.FC<ServerListProps> = ({
       borderStyle="round"
       borderColor={colors.grey}
       paddingX={1}
-      width="55%"
+      width={fullWidth ? '100%' : '55%'}
     >
       {/* Table header */}
       <Box>

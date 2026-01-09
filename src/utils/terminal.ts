@@ -41,6 +41,13 @@ export function detectTerminal(): TerminalInfo {
   };
 }
 
+/** Minimum dimensions for full layout */
+export const FULL_LAYOUT_WIDTH = 80;
+/** Minimum dimensions for compact layout (mobile) */
+export const COMPACT_LAYOUT_WIDTH = 50;
+/** Minimum rows for TUI */
+export const MIN_ROWS = 15;
+
 /**
  * Check if the terminal can run the TUI
  */
@@ -56,8 +63,8 @@ export function canRunTui(): { ok: boolean; issues: string[] } {
     issues.push('Not running in an interactive terminal (TTY)');
   }
 
-  if (info.columns < 80 || info.rows < 24) {
-    issues.push(`Terminal too small (${info.columns}x${info.rows}), need at least 80x24`);
+  if (info.columns < COMPACT_LAYOUT_WIDTH || info.rows < MIN_ROWS) {
+    issues.push(`Terminal too small (${info.columns}x${info.rows}), need at least ${COMPACT_LAYOUT_WIDTH}x${MIN_ROWS}`);
   }
 
   if (process.platform === 'win32' && !info.isWindowsTerminal) {
@@ -74,7 +81,15 @@ export function canRunTui(): { ok: boolean; issues: string[] } {
  * Get recommended minimum terminal dimensions
  */
 export function getMinDimensions(): { columns: number; rows: number } {
-  return { columns: 80, rows: 24 };
+  return { columns: COMPACT_LAYOUT_WIDTH, rows: MIN_ROWS };
+}
+
+/**
+ * Check if terminal should use compact layout (for mobile/narrow terminals)
+ */
+export function isCompactMode(columns?: number): boolean {
+  const cols = columns ?? process.stdout.columns ?? 80;
+  return cols < FULL_LAYOUT_WIDTH;
 }
 
 /**
