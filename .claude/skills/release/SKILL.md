@@ -14,6 +14,7 @@ allowed-tools:
   - Bash(gh:*)
   - Bash(node:*)
   - Bash(echo:*)
+  - Bash(sleep:*)
   - AskUserQuestion
 hooks:
   PreToolUse:
@@ -45,6 +46,7 @@ The workflow MUST follow this exact sequence to ensure npm publishing works:
 6. Push Tag to origin
 7. Create GitHub Release (triggers npm publish)
 8. Verify npm publication
+9. Auto-update global installation
 ```
 
 ## Why Order Matters
@@ -167,6 +169,28 @@ gh run list --limit 1
 # Check npm registry (after CI completes)
 npm view @henkisdabro/mcp-selector version
 ```
+
+### Step 11: Auto-Update Global Installation
+
+After verifying npm publication, automatically update the global installation:
+
+```bash
+# Wait for npm registry to propagate (90 seconds - CI takes ~60-75s)
+echo "Waiting 90 seconds for npm registry propagation..."
+sleep 90
+
+# Verify the new version is available on npm
+npm view @henkisdabro/mcp-selector version
+
+# Update global installation
+echo "Updating global installation..."
+npm install -g @henkisdabro/mcp-selector@X.Y.Z
+
+# Verify global installation
+mcp --version
+```
+
+This ensures the local development environment has the latest released version available globally.
 
 ## Semantic Versioning Guide
 
