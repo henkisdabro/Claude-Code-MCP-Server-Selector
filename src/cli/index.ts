@@ -15,7 +15,7 @@
 
 import { Command } from 'commander';
 
-const VERSION = '2.5.0';
+const VERSION = '2.5.1';
 
 // Capture Claude args passed after -- separator
 const dashDashIndex = process.argv.indexOf('--');

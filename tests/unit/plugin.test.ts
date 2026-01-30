@@ -193,6 +193,60 @@ describe('validatePluginServerName', () => {
   });
 });
 
+describe('getPluginDisableFormat for official plugins', () => {
+  it('handles serverKey matching pluginName (root-level .mcp.json format)', () => {
+    // claude-plugins-official uses root-level format where serverKey = pluginName
+    // e.g., { "github": {...} } becomes server name "github:github@claude-plugins-official"
+    expect(getPluginDisableFormat('github:github@claude-plugins-official'))
+      .toBe('plugin:github:github');
+    expect(getPluginDisableFormat('playwright:playwright@claude-plugins-official'))
+      .toBe('plugin:playwright:playwright');
+    expect(getPluginDisableFormat('context7:context7@claude-plugins-official'))
+      .toBe('plugin:context7:context7');
+  });
+
+  it('handles serverKey different from pluginName (standard format)', () => {
+    // Standard format where serverKey differs from pluginName
+    // e.g., { "mcpServers": { "stripe": {...} } } in stripe plugin
+    expect(getPluginDisableFormat('stripe:stripe@claude-plugins-official'))
+      .toBe('plugin:stripe:stripe');
+    // e.g., wookstar plugins like developer@wookstar-claude-plugins
+    expect(getPluginDisableFormat('context7:developer@wookstar-claude-plugins'))
+      .toBe('plugin:developer:context7');
+    expect(getPluginDisableFormat('playwright:developer@wookstar-claude-plugins'))
+      .toBe('plugin:developer:playwright');
+  });
+});
+
+describe('matchesPluginDisableEntry for official plugins', () => {
+  it('matches official plugin servers with same serverKey and pluginName', () => {
+    expect(matchesPluginDisableEntry(
+      'github:github@claude-plugins-official',
+      'plugin:github:github'
+    )).toBe(true);
+    expect(matchesPluginDisableEntry(
+      'playwright:playwright@claude-plugins-official',
+      'plugin:playwright:playwright'
+    )).toBe(true);
+    expect(matchesPluginDisableEntry(
+      'context7:context7@claude-plugins-official',
+      'plugin:context7:context7'
+    )).toBe(true);
+  });
+
+  it('distinguishes between same serverKey from different plugins', () => {
+    // context7 from claude-plugins-official vs developer from wookstar
+    expect(matchesPluginDisableEntry(
+      'context7:context7@claude-plugins-official',
+      'plugin:developer:context7'
+    )).toBe(false);
+    expect(matchesPluginDisableEntry(
+      'context7:developer@wookstar-claude-plugins',
+      'plugin:context7:context7'
+    )).toBe(false);
+  });
+});
+
 describe('edge cases with special characters', () => {
   describe('getPluginKey with edge cases', () => {
     it('should handle empty string', () => {

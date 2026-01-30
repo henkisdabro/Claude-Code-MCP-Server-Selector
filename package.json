@@ -1,6 +1,6 @@
 {
   "name": "@henkisdabro/mcp-selector",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "MCP Server Selector TUI for Claude Code",
   "type": "module",
   "main": "./dist/cli.js",
