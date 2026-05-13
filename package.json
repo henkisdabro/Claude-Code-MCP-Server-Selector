@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "tsx src/cli/index.ts",
     "build": "esbuild src/cli/index.ts --bundle --platform=node --target=node24 --outfile=dist/cli.js --format=esm --external:ink --external:react --external:react-devtools-core --external:yoga-wasm-web --external:yoga-layout-prebuilt --external:@inkjs/ui --external:ink-spinner --external:zustand --external:chalk --external:supports-color --external:commander --external:fuse.js --external:proper-lockfile",
-    "build:prod": "npm run build -- --minify",
+    "build:prod": "pnpm run build -- --minify",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -70,5 +70,6 @@
   "bugs": {
     "url": "https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector/issues"
   },
-  "homepage": "https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector#readme"
+  "homepage": "https://github.com/henkisdabro/Claude-Code-MCP-Server-Selector#readme",
+  "packageManager": "pnpm@11.1.1+sha512.d1fdf5f73c617b64fa1a56a81c3c8dfe0e966e33a6010aa256b517ae77be21d93e05affc0de1a83b0e4f29d569f68b446ae8f068cd7247c0bb3df0fb4d7bdf9a"
 }
