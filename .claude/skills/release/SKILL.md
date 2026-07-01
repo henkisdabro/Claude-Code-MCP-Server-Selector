@@ -1,7 +1,7 @@
 ---
 name: release
 description: Full npm release workflow - version bump, commit, tag, push, GitHub release. Use when publishing to npm, creating a release, or shipping a new version.
-model: claude-opus-4-5-20251101
+model: opus
 context: fork
 allowed-tools:
   - Read
