@@ -24,3 +24,6 @@ Thumbs.db
 # Test
 coverage/
 *.log
+
+# Agent refactor working notes
+.agent-refactor/
