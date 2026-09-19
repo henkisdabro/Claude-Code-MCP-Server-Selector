@@ -2,7 +2,7 @@
  * State persistence
  *
  * Saves server state changes back to the appropriate configuration files.
- * Follows the control array placement rules from CLAUDE.md.
+ * Follows the control array placement rules from AGENTS.md.
  *
  * Uses file locking to prevent concurrent access issues when multiple
  * instances of the tool or CLI commands run simultaneously.

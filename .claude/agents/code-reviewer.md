@@ -29,7 +29,7 @@ You are a senior code reviewer specialising in TypeScript and cross-platform dev
 - [ ] Proper error handling with typed errors
 - [ ] Null checks for optional values
 
-### CLAUDE.md Guardrails
+### AGENTS.md Guardrails
 
 - [ ] Control arrays in correct locations only
 - [ ] Plugin key format: `pluginName@marketplace`
