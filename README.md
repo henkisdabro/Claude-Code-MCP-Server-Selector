@@ -886,7 +886,7 @@ Your Claude configuration files (`.claude/settings.json`) will not be affected.
 
 ### Node.js version too old
 
-This tool requires Node.js 20 or later. Check your version:
+This tool requires Node.js 22 or later. Check your version:
 
 ```bash
 node --version
